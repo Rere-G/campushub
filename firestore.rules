@@ -1,0 +1,20 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /users/{uid} {
+      allow read: if request.auth != null && request.auth.uid == uid;
+
+      // On create, trust fields must be the safe defaults.
+      allow create: if request.auth != null && request.auth.uid == uid
+        && request.resource.data.approved == false
+        && request.resource.data.role == 'student';
+
+      // On update, trust fields may not change from their stored values.
+      allow update: if request.auth != null && request.auth.uid == uid
+        && request.resource.data.approved == resource.data.approved
+        && request.resource.data.role == resource.data.role;
+
+      allow delete: if false;
+    }
+  }
+}
