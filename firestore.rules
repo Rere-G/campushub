@@ -1,18 +1,37 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
+
+    // True only when the SIGNED-IN user's OWN stored doc has role == 'admin'.
+    // Reads the role from the database (not from anything the browser sends),
+    // so a normal user can't fake being an admin.
+    function isAdmin() {
+      return request.auth != null
+        && exists(/databases/$(database)/documents/users/$(request.auth.uid))
+        && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin';
+    }
+
     match /users/{uid} {
-      allow read: if request.auth != null && request.auth.uid == uid;
+      // You read your own doc; an admin may read any user's doc (to review them).
+      allow read: if request.auth != null && (request.auth.uid == uid || isAdmin());
 
       // On create, trust fields must be the safe defaults.
       allow create: if request.auth != null && request.auth.uid == uid
         && request.resource.data.approved == false
         && request.resource.data.role == 'student';
 
-      // On update, trust fields may not change from their stored values.
-      allow update: if request.auth != null && request.auth.uid == uid
-        && request.resource.data.approved == resource.data.approved
-        && request.resource.data.role == resource.data.role;
+      allow update: if request.auth != null && (
+        // Case 1 - you editing your own profile: trust fields must stay put.
+        (request.auth.uid == uid
+          && request.resource.data.approved == resource.data.approved
+          && request.resource.data.role == resource.data.role)
+        ||
+        // Case 2 - an admin approving/revoking: may change ONLY approved and/or
+        // verificationStatus. 'role' isn't in that set, so no admin can be created
+        // through the app.
+        (isAdmin()
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['approved', 'verificationStatus']))
+      );
 
       allow delete: if false;
     }
