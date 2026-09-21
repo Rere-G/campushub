@@ -103,6 +103,20 @@ export default function Dashboard() {
   const isAdmin = profile?.role === "admin";
   const profileCompleted = profile?.profileCompleted === true;
 
+  /* ── Real profile completion (6 fields) ── */
+  const completionFields = [
+    profile?.fullName,
+    profile?.bio,
+    profile?.department,
+    profile?.graduationYear,
+    profile?.university,
+    profile?.profilePhoto,
+  ];
+  const filledCount = completionFields.filter(
+    (v) => v != null && String(v).trim() !== ""
+  ).length;
+  const completionPct = Math.round((filledCount / completionFields.length) * 100);
+
   const quickActions = [
     {
       title: "Marketplace",
@@ -142,16 +156,13 @@ export default function Dashboard() {
     },
   ];
 
-  const recentActivity = [
-    { text: "Your dashboard is ready for marketplace activity.", time: "Just now", color: "#6366F1" },
-    { text: "Browse, post, and manage campus listings anytime.", time: "2m ago", color: "#F59E0B" },
-    { text: "Complete your profile to build trust on the platform.", time: "5m ago", color: "#10B981" },
-  ];
+  // No real activity source yet — empty until notifications/listings exist.
+  const recentActivity = [];
 
   const stats = [
-    { label: "Listings", value: "03", icon: HiOutlineShoppingBag },
-    { label: "Services", value: "02", icon: HiOutlineWrenchScrewdriver },
-    { label: "Saved", value: "05", icon: HiOutlineBookmark },
+    { label: "Listings", value: profile?.listingsCount ?? 0, icon: HiOutlineShoppingBag },
+    { label: "Services", value: profile?.servicesCount ?? 0, icon: HiOutlineWrenchScrewdriver },
+    { label: "Saved", value: profile?.savedCount ?? 0, icon: HiOutlineBookmark },
   ];
 
   const handleLogout = async () => {
@@ -188,16 +199,6 @@ export default function Dashboard() {
       />
       <div className="absolute inset-0 bg-black/80" />
       <div className="absolute inset-0 bg-gradient-to-b from-black/50 via-black/65 to-black/95" />
-
-      {/* ── Ambient orbs ── */}
-      <div
-        className="pointer-events-none absolute -top-40 left-1/4 h-[640px] w-[640px] rounded-full blur-3xl"
-        style={{ background: "radial-gradient(circle, rgba(99,102,241,0.18) 0%, transparent 70%)" }}
-      />
-      <div
-        className="pointer-events-none absolute -bottom-52 right-1/4 h-[560px] w-[560px] rounded-full blur-3xl"
-        style={{ background: "radial-gradient(circle, rgba(245,158,11,0.12) 0%, transparent 70%)" }}
-      />
 
       <div className="relative z-10 mx-auto max-w-7xl px-4 py-6 sm:px-6 lg:px-8">
 
@@ -300,12 +301,6 @@ export default function Dashboard() {
             }`}
           >
             <TopLine via="rgba(99,102,241,0.45)" t="rgba(244,114,182,0.35)" />
-            {/* inner corner glow */}
-            <div
-              className="pointer-events-none absolute -right-16 -top-16 h-64 w-64 rounded-full blur-3xl"
-              style={{ background: "radial-gradient(circle, rgba(99,102,241,0.22) 0%, transparent 70%)" }}
-            />
-
             <div className="relative z-10 flex h-full flex-col justify-between gap-8 lg:flex-row lg:items-center">
               <div className="max-w-xl">
                 <p className="text-[11px] uppercase tracking-[0.42em] text-white/35">
@@ -325,8 +320,7 @@ export default function Dashboard() {
                 <div className="mt-7 flex flex-wrap gap-3">
                   <Link
                     to="/marketplace"
-                    className="group inline-flex h-11 items-center gap-2.5 rounded-2xl px-6 text-sm font-bold uppercase tracking-[0.14em] text-white transition-all duration-300 hover:-translate-y-1 hover:shadow-[0_12px_28px_rgba(99,102,241,0.45)] active:scale-[0.97]"
-                    style={{ background: "linear-gradient(135deg, #818CF8 0%, #6366F1 100%)" }}
+                    className="group inline-flex h-11 items-center gap-2.5 rounded-2xl bg-gradient-to-r from-[#8f774b] to-[#c9963f] px-6 text-sm font-bold uppercase tracking-[0.14em] text-[#f4e6cd] transition-all duration-300 hover:-translate-y-1 hover:from-[#9c8352] hover:to-[#d6a24a] hover:shadow-[0_12px_28px_rgba(143,119,75,0.45)] active:scale-[0.97]"
                   >
                     <HiOutlineSparkles className="h-4 w-4 transition-transform duration-300 group-hover:rotate-12" />
                     Explore
@@ -342,14 +336,10 @@ export default function Dashboard() {
               </div>
 
               <div className="relative mx-auto w-fit shrink-0">
-                <div
-                  className="absolute inset-0 rounded-full blur-2xl opacity-35"
-                  style={{ background: "radial-gradient(circle, #6366F1, #F472B6)" }}
-                />
                 <img
                   src={mascotGif}
                   alt="CampusHub mascot"
-                  className="relative z-10 w-[150px] opacity-90 drop-shadow-[0_20px_40px_rgba(0,0,0,0.5)] transition-all duration-500 hover:scale-[1.06] sm:w-[200px]"
+                  className="animate-mascot-bob relative z-10 w-[150px] opacity-90 drop-shadow-[0_20px_40px_rgba(0,0,0,0.5)] transition-all duration-500 hover:scale-[1.06] sm:w-[200px]"
                 />
               </div>
             </div>
@@ -420,13 +410,13 @@ export default function Dashboard() {
                     <p className="text-xs font-bold uppercase tracking-wider text-amber-400/70">
                       Profile
                     </p>
-                    <p className="text-xs text-amber-400/50">60%</p>
+                    <p className="text-xs text-amber-400/50">{completionPct}%</p>
                   </div>
                   <div className="h-1.5 overflow-hidden rounded-full bg-white/[0.08]">
                     <div
                       className="h-full rounded-full transition-all duration-[1200ms] ease-out"
                       style={{
-                        width: show ? "60%" : "0%",
+                        width: show ? `${completionPct}%` : "0%",
                         background: "linear-gradient(90deg, #F59E0B, #FCD34D)",
                         transitionDelay: "400ms",
                       }}
@@ -536,42 +526,50 @@ export default function Dashboard() {
                 </div>
               </div>
 
-              <div className="space-y-2.5">
-                {recentActivity.map((item, i) => (
-                  <div
-                    key={i}
-                    className="flex items-start gap-3.5 rounded-[18px] border border-white/[0.06] bg-white/[0.03] px-4 py-4 transition-all duration-300 hover:bg-white/[0.06] hover:border-white/[0.10]"
-                    style={{
-                      opacity: show ? 1 : 0,
-                      transform: show ? "translateX(0)" : "translateX(-10px)",
-                      transition: `opacity 0.5s ease ${350 + i * 90}ms, transform 0.5s ease ${350 + i * 90}ms, background 0.25s, border-color 0.25s`,
-                    }}
-                  >
+              {recentActivity.length > 0 ? (
+                <div className="space-y-2.5">
+                  {recentActivity.map((item, i) => (
                     <div
-                      className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-xl"
-                      style={{ border: `1px solid ${item.color}28`, background: `${item.color}12` }}
+                      key={i}
+                      className="flex items-start gap-3.5 rounded-[18px] border border-white/[0.06] bg-white/[0.03] px-4 py-4 transition-all duration-300 hover:bg-white/[0.06] hover:border-white/[0.10]"
+                      style={{
+                        opacity: show ? 1 : 0,
+                        transform: show ? "translateX(0)" : "translateX(-10px)",
+                        transition: `opacity 0.5s ease ${350 + i * 90}ms, transform 0.5s ease ${350 + i * 90}ms, background 0.25s, border-color 0.25s`,
+                      }}
                     >
                       <div
-                        className="h-2 w-2 rounded-full"
-                        style={{ background: item.color, boxShadow: `0 0 6px ${item.color}` }}
-                      />
+                        className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-xl"
+                        style={{ border: `1px solid ${item.color}28`, background: `${item.color}12` }}
+                      >
+                        <div
+                          className="h-2 w-2 rounded-full"
+                          style={{ background: item.color, boxShadow: `0 0 6px ${item.color}` }}
+                        />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm leading-6 text-white/60">{item.text}</p>
+                        <p className="mt-0.5 text-[11px] text-white/28">{item.time}</p>
+                      </div>
                     </div>
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm leading-6 text-white/60">{item.text}</p>
-                      <p className="mt-0.5 text-[11px] text-white/28">{item.time}</p>
-                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div
+                  className="flex flex-col items-center justify-center rounded-[18px] border border-dashed px-4 py-10 text-center"
+                  style={{ borderColor: "rgba(255,255,255,0.07)" }}
+                >
+                  <div className="flex h-12 w-12 items-center justify-center rounded-2xl border border-white/[0.08] bg-white/[0.05]">
+                    <HiOutlineBellAlert className="h-5 w-5 text-white/40" />
                   </div>
-                ))}
-              </div>
-
-              <div
-                className="mt-4 rounded-[18px] border border-dashed px-4 py-4"
-                style={{ borderColor: "rgba(255,255,255,0.07)" }}
-              >
-                <p className="text-sm leading-6 text-white/30">
-                  Real notifications, listing views, and messages will appear here.
-                </p>
-              </div>
+                  <p className="mt-3 text-sm font-semibold text-white/70">
+                    No activity yet
+                  </p>
+                  <p className="mt-1 max-w-[240px] text-sm leading-6 text-white/35">
+                    Your notifications, listing views, and messages will show up here as you use CampusHub.
+                  </p>
+                </div>
+              )}
             </div>
           </div>
         </section>
