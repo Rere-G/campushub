@@ -359,7 +359,15 @@ export default function Dashboard() {
                     border: "1px solid rgba(201,150,63,0.30)",
                   }}
                 >
-                  {username?.slice(0, 1)?.toUpperCase() || "U"}
+                  {/^https?:\/\//i.test(profile?.profilePhoto || "") ? (
+                    <img
+                      src={profile.profilePhoto}
+                      alt="Your profile"
+                      className="absolute inset-0 h-full w-full rounded-2xl object-cover"
+                    />
+                  ) : (
+                    username?.slice(0, 1)?.toUpperCase() || "U"
+                  )}
                   {/* online dot */}
                   <span className="absolute -bottom-1 -right-1 h-4 w-4 rounded-full border-2 border-[#0d0b07] bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.6)]" />
                 </div>
