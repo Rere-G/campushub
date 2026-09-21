@@ -125,7 +125,7 @@ export default function Dashboard() {
     {
       title: "My Profile",
       desc: "Manage your personal account details.",
-      to: "/profile",
+      to: "/Profile",
       icon: HiOutlineUserCircle,
       accent: "#10B981",
       accentBg: "rgba(16,185,129,0.10)",
@@ -180,7 +180,7 @@ export default function Dashboard() {
   );
 
   return (
-    <div className="relative min-h-screen overflow-hidden bg-[#07090D] text-white">
+    <div className="relative min-h-screen overflow-hidden bg-[#07090D] text-white" style={{ fontFamily: "'Inter', sans-serif" }}>
       {/* ── BG image ── */}
       <div
         className="absolute inset-0 scale-105 bg-cover bg-center bg-no-repeat"
@@ -220,7 +220,7 @@ export default function Dashboard() {
               </p>
             </div>
             <Link
-              to="/profile"
+              to="/Profile"
               className="shrink-0 rounded-xl px-3.5 py-1.5 text-xs font-bold uppercase tracking-wider text-amber-300 transition-all hover:bg-amber-400/15"
               style={{ border: "1px solid rgba(245,158,11,0.3)" }}
             >
@@ -258,7 +258,7 @@ export default function Dashboard() {
                   </span>
                 )}
               </div>
-              <h1 className="mt-2 text-3xl font-bold tracking-tight text-white sm:text-4xl">
+              <h1 className="mt-2 text-3xl font-bold tracking-tight text-white sm:text-4xl" style={{ fontFamily: "'Inter', sans-serif" }}>
                 Dashboard
               </h1>
             </div>
@@ -311,7 +311,7 @@ export default function Dashboard() {
                 <p className="text-[11px] uppercase tracking-[0.42em] text-white/35">
                   {getGreeting()}
                 </p>
-                <h2 className="mt-3 text-4xl font-bold leading-tight text-white sm:text-5xl">
+                <h2 className="mt-3 text-4xl font-bold leading-tight text-white sm:text-5xl" style={{ fontFamily: "'Inter', sans-serif" }}>
                   {loadingProfile ? (
                     <span className="inline-block h-11 w-52 animate-pulse rounded-xl bg-white/10" />
                   ) : (
@@ -379,7 +379,7 @@ export default function Dashboard() {
                 </div>
 
                 <div className="min-w-0">
-                  <h3 className="truncate text-xl font-bold text-white">
+                  <h3 className="truncate text-xl font-bold text-white" style={{ fontFamily: "'Inter', sans-serif" }}>
                     {loadingProfile ? (
                       <span className="inline-block h-5 w-32 animate-pulse rounded-lg bg-white/10" />
                     ) : (
@@ -466,7 +466,7 @@ export default function Dashboard() {
                 <p className="text-[11px] uppercase tracking-[0.38em] text-white/35">
                   What's next
                 </p>
-                <h3 className="mt-2 text-2xl font-bold text-white">Quick Actions</h3>
+                <h3 className="mt-2 text-2xl font-bold text-white" style={{ fontFamily: "'Inter', sans-serif" }}>Quick Actions</h3>
               </div>
 
               <div className="grid grid-cols-1 gap-3.5 lg:grid-cols-2">
@@ -504,7 +504,6 @@ export default function Dashboard() {
 
                         <div
                           className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-white/[0.07] bg-white/[0.04] text-white/40 transition-all duration-300 group-hover:translate-x-1 group-hover:text-white/70"
-                          style={{ "--hover-border": action.accentBorder }}
                         >
                           <HiOutlineArrowRight className="h-4 w-4" />
                         </div>
@@ -530,7 +529,7 @@ export default function Dashboard() {
                   <p className="text-[11px] uppercase tracking-[0.38em] text-white/35">
                     Notifications
                   </p>
-                  <h3 className="mt-2 text-2xl font-bold text-white">Activity</h3>
+                  <h3 className="mt-2 text-2xl font-bold text-white" style={{ fontFamily: "'Inter', sans-serif" }}>Activity</h3>
                 </div>
                 <div className="flex h-9 w-9 items-center justify-center rounded-xl border border-white/[0.08] bg-white/[0.05]">
                   <HiOutlineBellAlert className="h-4 w-4 text-white/50" />
@@ -584,7 +583,7 @@ export default function Dashboard() {
           }`}
         >
           <p className="text-[11px] uppercase tracking-[0.32em] text-white/20">
-            CampusHub © 2025
+            CampusHub © {new Date().getFullYear()}
           </p>
           <p className="text-[11px] text-white/15">Student Marketplace</p>
         </footer>
