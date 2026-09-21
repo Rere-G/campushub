@@ -7,6 +7,11 @@ import dashboardBg from "../assets/dashboard-bg.jpg";
 
 const inter = { fontFamily: "'Inter', sans-serif" };
 
+// --- Cloudinary unsigned upload config (these are NOT secrets; safe in client code) ---
+const CLOUDINARY_CLOUD_NAME = "jrwzbtls";
+const CLOUDINARY_UPLOAD_PRESET = "campushub_unsigned";
+const MAX_PHOTO_BYTES = 5 * 1024 * 1024; // 5 MB
+
 // Wide range: last 10 years (alumni) .. +7 (current students' expected year)
 const GRAD_YEARS = (() => {
   const y = new Date().getFullYear();
@@ -37,6 +42,7 @@ export default function Profile() {
   const [profile, setProfile] = useState(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [uploadingPhoto, setUploadingPhoto] = useState(false);
   const [popup, setPopup] = useState({ show: false, text: "", ok: true });
 
   const [form, setForm] = useState({
@@ -93,6 +99,47 @@ export default function Profile() {
   const showPopup = (text, ok = true, ms = 2200) => {
     setPopup({ show: true, text, ok });
     setTimeout(() => setPopup((p) => ({ ...p, show: false })), ms);
+  };
+
+  const handlePhotoChange = async (e) => {
+    const file = e.target.files && e.target.files[0];
+    e.target.value = ""; // let the same file be re-picked later
+    if (!file || !user) return;
+    if (!file.type.startsWith("image/")) {
+      showPopup("Please choose an image file.", false);
+      return;
+    }
+    if (file.size > MAX_PHOTO_BYTES) {
+      showPopup("That image is over 5 MB — pick a smaller one.", false, 2800);
+      return;
+    }
+    setUploadingPhoto(true);
+    try {
+      const fd = new FormData();
+      fd.append("file", file);
+      fd.append("upload_preset", CLOUDINARY_UPLOAD_PRESET);
+      const res = await fetch(`https://api.cloudinary.com/v1_1/${CLOUDINARY_CLOUD_NAME}/image/upload`, {
+        method: "POST",
+        body: fd,
+      });
+      const json = await res.json();
+      if (!res.ok || !json.secure_url) {
+        throw new Error((json && json.error && json.error.message) || "Upload failed");
+      }
+      const url = json.secure_url;
+
+      // Recompute completion from STORED fields + the new photo, then save both.
+      const completionFields = [profile?.fullName, profile?.bio, profile?.department, profile?.graduationYear, profile?.university, url];
+      const allFilled = completionFields.every(isFilled);
+
+      await updateDoc(doc(db, "users", user.uid), { profilePhoto: url, profileCompleted: allFilled });
+      setProfile((p) => ({ ...(p || {}), profilePhoto: url, profileCompleted: allFilled }));
+      showPopup("Photo updated!");
+    } catch (err) {
+      showPopup("Couldn't upload the photo. Check the preset is Unsigned, then try again.", false, 3200);
+    } finally {
+      setUploadingPhoto(false);
+    }
   };
 
   const handleSave = async () => {
@@ -166,14 +213,25 @@ export default function Profile() {
             <div className="overflow-hidden rounded-[24px] border border-white/10 bg-white/[0.05] shadow-[0_20px_70px_rgba(0,0,0,0.5)] backdrop-blur-xl">
               <div className="h-[3px] bg-gradient-to-r from-[#8f774b] to-[#c9963f]" />
               <div className="p-5 text-center sm:p-6">
-                {photoIsUrl ? (
-                  <img src={photo} alt="Your profile" className="mx-auto h-[92px] w-[92px] rounded-full object-cover ring-2 ring-[#c9963f]/40" />
-                ) : (
-                  <div className="mx-auto flex h-[92px] w-[92px] items-center justify-center rounded-full bg-gradient-to-br from-[#8f774b] to-[#c9963f] text-3xl font-semibold text-[#f4e6cd] shadow-[0_8px_26px_rgba(143,119,75,0.45)]">
-                    {initial}
-                  </div>
-                )}
-                <p className="mt-2.5 text-[11px] text-[#f4e6cd]/40">Photo upload coming in the next update</p>
+                <div className="relative mx-auto h-[92px] w-[92px]">
+                  {photoIsUrl ? (
+                    <img src={photo} alt="Your profile" className="h-[92px] w-[92px] rounded-full object-cover ring-2 ring-[#c9963f]/40" />
+                  ) : (
+                    <div className="flex h-[92px] w-[92px] items-center justify-center rounded-full bg-gradient-to-br from-[#8f774b] to-[#c9963f] text-3xl font-semibold text-[#f4e6cd] shadow-[0_8px_26px_rgba(143,119,75,0.45)]">
+                      {initial}
+                    </div>
+                  )}
+                  {uploadingPhoto && (
+                    <div className="absolute inset-0 flex items-center justify-center rounded-full bg-black/55">
+                      <span className="h-6 w-6 animate-spin rounded-full border-2 border-white/30 border-t-[#f4e6cd]" />
+                    </div>
+                  )}
+                </div>
+                <label className="mt-3 inline-flex cursor-pointer items-center gap-1.5 rounded-full border border-[#c9963f]/40 px-3.5 py-1.5 text-xs font-medium text-[#d6bd97] transition hover:border-[#c9963f] hover:text-[#f4e6cd]">
+                  <input type="file" accept="image/*" className="hidden" onChange={handlePhotoChange} disabled={uploadingPhoto} />
+                  {uploadingPhoto ? "Uploading…" : photoIsUrl ? "Change photo" : "Add a photo"}
+                </label>
+
                 <h2 className="mt-3 text-xl font-semibold text-[#f4e6cd]" style={inter}>{displayName}</h2>
                 <p className="mt-0.5 text-[13px] text-[#f4e6cd]/60">
                   {form.username ? `@${form.username}` : "@student"} · {profile?.role === "admin" ? "Admin" : "Student"}
