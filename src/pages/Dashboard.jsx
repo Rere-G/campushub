@@ -123,36 +123,32 @@ export default function Dashboard() {
       desc: "Browse the newest campus listings.",
       to: "/marketplace",
       icon: HiOutlineShoppingBag,
-      accent: "#6366F1",
-      accentBg: "rgba(99,102,241,0.10)",
-      accentBorder: "rgba(99,102,241,0.25)",
+      accent: "#c9963f",
+      accentBg: "rgba(201,150,63,0.10)",
     },
     {
       title: "Offer Services",
       desc: "Publish tutoring or campus services.",
       to: "/services",
       icon: HiOutlineWrenchScrewdriver,
-      accent: "#F59E0B",
-      accentBg: "rgba(245,158,11,0.10)",
-      accentBorder: "rgba(245,158,11,0.25)",
+      accent: "#8f774b",
+      accentBg: "rgba(143,119,75,0.10)",
     },
     {
       title: "My Profile",
       desc: "Manage your personal account details.",
       to: "/Profile",
       icon: HiOutlineUserCircle,
-      accent: "#10B981",
-      accentBg: "rgba(16,185,129,0.10)",
-      accentBorder: "rgba(16,185,129,0.25)",
+      accent: "#d6bd97",
+      accentBg: "rgba(214,189,151,0.10)",
     },
     {
       title: "Create Listing",
       desc: "Post your next item or service.",
       to: "/marketplace",
       icon: HiOutlinePlusCircle,
-      accent: "#F472B6",
-      accentBg: "rgba(244,114,182,0.10)",
-      accentBorder: "rgba(244,114,182,0.25)",
+      accent: "#c9963f",
+      accentBg: "rgba(201,150,63,0.10)",
     },
   ];
 
@@ -191,14 +187,14 @@ export default function Dashboard() {
   );
 
   return (
-    <div className="relative min-h-screen overflow-hidden bg-[#07090D] text-white" style={{ fontFamily: "'Inter', sans-serif" }}>
+    <div className="relative min-h-screen overflow-hidden bg-[#0d0b07] text-white" style={{ fontFamily: "'Inter', sans-serif" }}>
       {/* ── BG image ── */}
       <div
         className="absolute inset-0 scale-105 bg-cover bg-center bg-no-repeat"
         style={{ backgroundImage: `url(${dashboardBg})` }}
       />
-      <div className="absolute inset-0 bg-black/80" />
-      <div className="absolute inset-0 bg-gradient-to-b from-black/50 via-black/65 to-black/95" />
+      <div className="absolute inset-0 bg-[#0d0b07]/80" />
+      <div className="absolute inset-0 bg-gradient-to-b from-[#1a120a]/45 via-[#0d0b07]/70 to-black/95" />
 
       <div className="relative z-10 mx-auto max-w-7xl px-4 py-6 sm:px-6 lg:px-8">
 
@@ -207,23 +203,23 @@ export default function Dashboard() {
           <div
             className="mb-4 flex items-center justify-between gap-4 rounded-2xl px-5 py-3.5 transition-all duration-700"
             style={{
-              border: "1px solid rgba(245,158,11,0.25)",
-              background: "rgba(245,158,11,0.07)",
+              border: "1px solid rgba(201,150,63,0.28)",
+              background: "rgba(201,150,63,0.07)",
               opacity: show ? 1 : 0,
               transform: show ? "translateY(0)" : "translateY(-8px)",
               transition: "opacity 0.6s ease, transform 0.6s ease",
             }}
           >
             <div className="flex items-center gap-3">
-              <HiOutlineSparkles className="h-4 w-4 shrink-0 text-amber-400" />
-              <p className="text-sm text-amber-300/80">
+              <HiOutlineSparkles className="h-4 w-4 shrink-0 text-[#c9963f]" />
+              <p className="text-sm text-[#d6bd97]">
                 Your profile is incomplete — finish it to build trust with buyers and sellers.
               </p>
             </div>
             <Link
               to="/Profile"
-              className="shrink-0 rounded-xl px-3.5 py-1.5 text-xs font-bold uppercase tracking-wider text-amber-300 transition-all hover:bg-amber-400/15"
-              style={{ border: "1px solid rgba(245,158,11,0.3)" }}
+              className="shrink-0 rounded-xl px-3.5 py-1.5 text-xs font-bold uppercase tracking-wider text-[#d6bd97] transition-all hover:bg-[#c9963f]/15"
+              style={{ border: "1px solid rgba(201,150,63,0.35)" }}
             >
               Finish
             </Link>
@@ -236,7 +232,7 @@ export default function Dashboard() {
             show ? "translate-y-0 opacity-100" : "-translate-y-6 opacity-0"
           }`}
         >
-          <TopLine via="rgba(99,102,241,0.55)" />
+          <TopLine via="rgba(214,189,151,0.50)" />
 
           <div className="relative z-10 flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
             <div>
@@ -244,8 +240,8 @@ export default function Dashboard() {
                 <p className="text-[11px] uppercase tracking-[0.38em] text-white/35">CampusHub</p>
                 {isAdmin && (
                   <span
-                    className="inline-flex items-center gap-1 rounded-lg px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-indigo-300"
-                    style={{ border: "1px solid rgba(99,102,241,0.3)", background: "rgba(99,102,241,0.12)" }}
+                    className="inline-flex items-center gap-1 rounded-lg px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-[#d6bd97]"
+                    style={{ border: "1px solid rgba(201,150,63,0.35)", background: "rgba(201,150,63,0.12)" }}
                   >
                     <HiOutlineShieldCheck className="h-3 w-3" /> Admin
                   </span>
@@ -300,7 +296,7 @@ export default function Dashboard() {
               show ? "translate-y-0 opacity-100" : "translate-y-10 opacity-0"
             }`}
           >
-            <TopLine via="rgba(99,102,241,0.45)" t="rgba(244,114,182,0.35)" />
+            <TopLine via="rgba(143,119,75,0.45)" t="rgba(201,150,63,0.35)" />
             <div className="relative z-10 flex h-full flex-col justify-between gap-8 lg:flex-row lg:items-center">
               <div className="max-w-xl">
                 <p className="text-[11px] uppercase tracking-[0.42em] text-white/35">
@@ -351,21 +347,21 @@ export default function Dashboard() {
               show ? "translate-y-0 opacity-100" : "translate-y-10 opacity-0"
             }`}
           >
-            <TopLine via="rgba(16,185,129,0.45)" />
+            <TopLine via="rgba(201,150,63,0.45)" />
 
             <div className="relative z-10 flex h-full flex-col">
               {/* Avatar + info */}
               <div className="flex items-start gap-4">
                 <div
-                  className="relative flex h-16 w-16 shrink-0 items-center justify-center rounded-2xl text-2xl font-bold text-white shadow-[0_8px_24px_rgba(0,0,0,0.4)]"
+                  className="relative flex h-16 w-16 shrink-0 items-center justify-center rounded-2xl text-2xl font-bold text-[#f4e6cd] shadow-[0_8px_24px_rgba(0,0,0,0.4)]"
                   style={{
-                    background: "linear-gradient(135deg, rgba(99,102,241,0.28), rgba(244,114,182,0.22))",
-                    border: "1px solid rgba(99,102,241,0.28)",
+                    background: "linear-gradient(135deg, rgba(143,119,75,0.35), rgba(201,150,63,0.25))",
+                    border: "1px solid rgba(201,150,63,0.30)",
                   }}
                 >
                   {username?.slice(0, 1)?.toUpperCase() || "U"}
                   {/* online dot */}
-                  <span className="absolute -bottom-1 -right-1 h-4 w-4 rounded-full border-2 border-[#07090D] bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.6)]" />
+                  <span className="absolute -bottom-1 -right-1 h-4 w-4 rounded-full border-2 border-[#0d0b07] bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.6)]" />
                 </div>
 
                 <div className="min-w-0">
@@ -404,20 +400,20 @@ export default function Dashboard() {
               {!profileCompleted && (
                 <div
                   className="mt-5 rounded-2xl p-4"
-                  style={{ border: "1px solid rgba(245,158,11,0.18)", background: "rgba(245,158,11,0.05)" }}
+                  style={{ border: "1px solid rgba(201,150,63,0.20)", background: "rgba(201,150,63,0.05)" }}
                 >
                   <div className="mb-2 flex items-center justify-between">
-                    <p className="text-xs font-bold uppercase tracking-wider text-amber-400/70">
+                    <p className="text-xs font-bold uppercase tracking-wider text-[#c9963f]/70">
                       Profile
                     </p>
-                    <p className="text-xs text-amber-400/50">{completionPct}%</p>
+                    <p className="text-xs text-[#c9963f]/60">{completionPct}%</p>
                   </div>
                   <div className="h-1.5 overflow-hidden rounded-full bg-white/[0.08]">
                     <div
                       className="h-full rounded-full transition-all duration-[1200ms] ease-out"
                       style={{
                         width: show ? `${completionPct}%` : "0%",
-                        background: "linear-gradient(90deg, #F59E0B, #FCD34D)",
+                        background: "linear-gradient(90deg, #8f774b, #c9963f)",
                         transitionDelay: "400ms",
                       }}
                     />
@@ -449,7 +445,7 @@ export default function Dashboard() {
               show ? "translate-y-0 opacity-100" : "translate-y-10 opacity-0"
             }`}
           >
-            <TopLine via="rgba(244,114,182,0.40)" />
+            <TopLine via="rgba(143,119,75,0.45)" />
 
             <div className="relative z-10">
               <div className="mb-6">
@@ -511,7 +507,7 @@ export default function Dashboard() {
               show ? "translate-y-0 opacity-100" : "translate-y-10 opacity-0"
             }`}
           >
-            <TopLine via="rgba(245,158,11,0.45)" />
+            <TopLine via="rgba(214,189,151,0.45)" />
 
             <div className="relative z-10">
               <div className="mb-5 flex items-center justify-between">
