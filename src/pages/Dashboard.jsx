@@ -199,7 +199,7 @@ export default function Dashboard() {
       <div className="relative z-10 mx-auto max-w-7xl px-4 py-6 sm:px-6 lg:px-8">
 
         {/* ── Profile incomplete banner ── */}
-        {!loadingProfile && !profileCompleted && (
+        {!loadingProfile && !profileCompleted && !isAdmin && (
           <div
             className="mb-4 flex items-center justify-between gap-4 rounded-2xl px-5 py-3.5 transition-all duration-700"
             style={{
@@ -251,7 +251,7 @@ export default function Dashboard() {
                     className="inline-flex items-center gap-1 rounded-lg px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-emerald-300"
                     style={{ border: "1px solid rgba(16,185,129,0.3)", background: "rgba(16,185,129,0.10)" }}
                   >
-                    <HiOutlineCheckBadge className="h-3 w-3" /> Verified
+                    <HiOutlineCheckBadge className="h-3 w-3" /> Approved
                   </span>
                 )}
               </div>
@@ -393,14 +393,14 @@ export default function Dashboard() {
                   <p className="mt-1 break-all text-sm text-white/40">{user?.email}</p>
                   <div className="mt-2.5 flex flex-wrap gap-1.5">
                     <span className="inline-flex h-6 items-center rounded-lg border border-white/10 bg-white/[0.05] px-2.5 text-[10px] font-semibold uppercase tracking-wider text-white/50">
-                      Student
+                      {isAdmin ? "Admin" : "Student"}
                     </span>
                     {isApproved && (
                       <span
                         className="inline-flex h-6 items-center gap-1 rounded-lg px-2.5 text-[10px] font-semibold uppercase tracking-wider text-emerald-400"
                         style={{ border: "1px solid rgba(16,185,129,0.28)", background: "rgba(16,185,129,0.10)" }}
                       >
-                        <HiOutlineCheckBadge className="h-3 w-3" /> Verified
+                        <HiOutlineCheckBadge className="h-3 w-3" /> Approved
                       </span>
                     )}
                   </div>

@@ -185,7 +185,6 @@ export default function Profile() {
   const initial = (form.fullName || form.username || user?.email || "?").trim().charAt(0).toUpperCase() || "?";
   const photo = profile?.profilePhoto || "";
   const photoIsUrl = /^https?:\/\//i.test(photo);
-  const verified = profile?.verificationStatus === "verified";
 
   const inputClass =
     "w-full rounded-2xl border border-[#d6bd97]/25 bg-[#090704]/70 px-4 py-3 text-[#f4e6cd] placeholder:text-white/30 outline-none transition focus:border-[#c9963f] focus:shadow-[0_0_0_4px_rgba(201,150,63,0.18)]";
@@ -236,11 +235,6 @@ export default function Profile() {
                 <p className="mt-0.5 text-[13px] text-[#f4e6cd]/60">
                   {form.username ? `@${form.username}` : "@student"} · {profile?.role === "admin" ? "Admin" : "Student"}
                 </p>
-                <div className="mt-3">
-                  <span className={`inline-block rounded-full px-3 py-1 text-xs font-semibold ${verified ? "bg-green-500/15 text-green-300" : "bg-[#c9963f]/15 text-[#d6bd97]"}`}>
-                    {verified ? "Verified" : "Not verified"}
-                  </span>
-                </div>
 
                 <div className="my-5 h-px bg-white/10" />
 
