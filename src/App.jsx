@@ -6,6 +6,7 @@ import Login from "./pages/Login";
 import Signup from "./pages/Signup";
 import Dashboard from "./pages/Dashboard";
 import Profile from "./pages/Profile";
+import Admin from "./pages/Admin";
 
 export default function App() {
   return (
@@ -18,6 +19,7 @@ export default function App() {
       <Route path="/signup" element={<Signup />} />
       <Route path="/dashboard" element={<Dashboard />} />
       <Route path="/Profile" element={<Profile />} />
+      <Route path="/admin" element={<Admin />} />
       <Route path="*" element={<Navigate to="/login" replace />} />
     </Routes>
   );
