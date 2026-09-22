@@ -274,6 +274,16 @@ export default function Dashboard() {
                   {label}
                 </Link>
               ))}
+              {isAdmin && (
+                <Link
+                  to="/admin"
+                  className="inline-flex h-10 items-center gap-2 rounded-xl px-4 text-sm font-semibold text-[#d6bd97] transition-all duration-250 hover:-translate-y-0.5 hover:bg-[#c9963f]/15"
+                  style={{ border: "1px solid rgba(201,150,63,0.35)", background: "rgba(201,150,63,0.10)" }}
+                >
+                  <HiOutlineShieldCheck className="h-4 w-4" />
+                  Admin
+                </Link>
+              )}
               <button
                 onClick={handleLogout}
                 disabled={loggingOut}
