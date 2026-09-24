@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { onAuthStateChanged } from "firebase/auth";
-import { doc, getDoc, updateDoc } from "firebase/firestore";
+import { doc, getDoc, updateDoc, setDoc, serverTimestamp } from "firebase/firestore";
 import { auth, db } from "../services/firebase";
 import dashboardBg from "../assets/dashboard-bg.jpg";
 
@@ -134,6 +134,18 @@ export default function Profile() {
 
       await updateDoc(doc(db, "users", user.uid), { profilePhoto: url, profileCompleted: allFilled });
       setProfile((p) => ({ ...(p || {}), profilePhoto: url, profileCompleted: allFilled }));
+
+      // Keep the public mirror in sync so listings show the current photo.
+      try {
+        await setDoc(
+          doc(db, "publicProfiles", user.uid),
+          { name: displayName, photo: url, updatedAt: serverTimestamp() },
+          { merge: true }
+        );
+      } catch (mirrorErr) {
+        console.error("Couldn't sync publicProfiles:", mirrorErr);
+      }
+
       showPopup("Photo updated!");
     } catch (err) {
       showPopup("Couldn't upload the photo. Check the preset is Unsigned, then try again.", false, 3200);
@@ -172,6 +184,17 @@ export default function Profile() {
         studentId: form.studentId.trim(),
         profileCompleted: allFilled,
       }));
+
+      // Keep the public mirror in sync so listings show the current name/photo.
+      try {
+        await setDoc(
+          doc(db, "publicProfiles", user.uid),
+          { name: displayName, photo: profile?.profilePhoto || "", updatedAt: serverTimestamp() },
+          { merge: true }
+        );
+      } catch (mirrorErr) {
+        console.error("Couldn't sync publicProfiles:", mirrorErr);
+      }
 
       showPopup(allFilled ? "Profile saved — you're all set!" : "Profile saved.");
     } catch (err) {

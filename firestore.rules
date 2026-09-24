@@ -11,6 +11,17 @@ service cloud.firestore {
         && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin';
     }
 
+    // True only when the SIGNED-IN user's OWN stored doc is approved and not
+    // banned. Used to gate creating listings — defense in depth alongside the
+    // app's own route guard, so a pending/banned account can't post even by
+    // calling Firestore directly.
+    function isApprovedAndActive() {
+      return request.auth != null
+        && exists(/databases/$(database)/documents/users/$(request.auth.uid))
+        && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.approved == true
+        && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.get('banned', false) == false;
+    }
+
     match /users/{uid} {
       // You read your own doc; an admin may read any user's doc (to review them).
       allow read: if request.auth != null && (request.auth.uid == uid || isAdmin());
@@ -34,6 +45,51 @@ service cloud.firestore {
         (isAdmin()
           && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['approved', 'verificationStatus', 'banned']))
       );
+
+      allow delete: if false;
+    }
+
+    match /listings/{listingId} {
+      // Any signed-in user can browse listings.
+      allow read: if request.auth != null;
+
+      // Only an approved, non-banned user may post — and only as themselves.
+      allow create: if isApprovedAndActive()
+        && request.resource.data.sellerId == request.auth.uid
+        && request.resource.data.status == 'active'
+        && request.resource.data.category in
+             ['books', 'electronics', 'clothing', 'dorm', 'gaming', 'services']
+        && request.resource.data.photos is list
+        && request.resource.data.photos.size() <= 3;
+
+      allow update: if request.auth != null && (
+        // Owner: may edit their own listing's content, and move it between
+        // active / sold / removed themselves (their own item's lifecycle).
+        // sellerId can never change.
+        (request.auth.uid == resource.data.sellerId
+          && request.resource.data.sellerId == resource.data.sellerId
+          && request.resource.data.status in ['active', 'sold', 'removed'])
+        ||
+        // Admin: may change ONLY status, and only to active/removed
+        // (moderation — never 'sold', that's the seller's own call).
+        (isAdmin()
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status'])
+          && request.resource.data.status in ['active', 'removed'])
+      );
+
+      // Soft-delete only — never a real delete.
+      allow delete: if false;
+    }
+
+    // A small public-safe mirror of {name, photo} per user, kept fresh by the
+    // user themselves whenever they save their profile. Lets listings show a
+    // seller's current name/photo without opening up reads on /users (which
+    // holds email, studentId, etc).
+    match /publicProfiles/{uid} {
+      allow read: if request.auth != null;
+
+      allow create, update: if request.auth != null && request.auth.uid == uid
+        && request.resource.data.keys().hasOnly(['name', 'photo', 'updatedAt']);
 
       allow delete: if false;
     }
