@@ -7,6 +7,7 @@ import Signup from "./pages/Signup";
 import Dashboard from "./pages/Dashboard";
 import Profile from "./pages/Profile";
 import Admin from "./pages/Admin";
+import CreateListing from "./pages/CreateListing";
 import Gate from "./components/Gate";
 
 export default function App() {
@@ -15,6 +16,7 @@ export default function App() {
       <Route path="/" element={<Navigate to="/login" replace />} />
       <Route path="/Home" element={<Gate><Home /></Gate>} />
       <Route path="/marketplace" element={<Gate><Marketplace /></Gate>} />
+      <Route path="/marketplace/new" element={<Gate><CreateListing /></Gate>} />
       <Route path="/services" element={<Gate><Services /></Gate>} />
       <Route path="/login" element={<Login />} />
       <Route path="/signup" element={<Signup />} />
