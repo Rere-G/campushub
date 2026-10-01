@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { addDoc, collection, serverTimestamp } from "firebase/firestore";
 import { HiOutlineXMark, HiOutlineCheckCircle, HiOutlinePhoto, HiOutlineTag } from "react-icons/hi2";
@@ -196,14 +196,14 @@ export default function CreateListing() {
         </Link>
 
         <div
-          className="relative overflow-hidden rounded-[24px] border border-white/10 bg-white/[0.05] p-6 shadow-[0_20px_70px_rgba(0,0,0,0.5)] backdrop-blur-xl transition-all duration-700 sm:p-8"
+          className="relative rounded-[24px] border border-white/10 bg-white/[0.05] p-6 shadow-[0_20px_70px_rgba(0,0,0,0.5)] backdrop-blur-xl transition-all duration-700 sm:p-8"
           style={{
             opacity: show ? 1 : 0,
             transform: show ? "translateY(0)" : "translateY(16px)",
           }}
         >
           <div
-            className="pointer-events-none absolute inset-x-0 top-0 h-[3px]"
+            className="pointer-events-none absolute inset-x-0 top-0 h-[3px] rounded-t-[24px]"
             style={{ background: "linear-gradient(90deg,#8f774b,#c9963f)" }}
           />
 
@@ -295,32 +295,7 @@ export default function CreateListing() {
                   </div>
                   <div>
                     <label className={labelClass}>Category</label>
-                    <div className="relative">
-                      <select
-                        value={category}
-                        onChange={(e) => setCategory(e.target.value)}
-                        className={`${inputClass} appearance-none pr-10`}
-                      >
-                        <option value="" disabled className="bg-[#1e211e]">
-                          Select…
-                        </option>
-                        {CATEGORIES.map((c) => (
-                          <option key={c.key} value={c.key} className="bg-[#1e211e]">
-                            {c.label}
-                          </option>
-                        ))}
-                      </select>
-                      <svg
-                        viewBox="0 0 16 16"
-                        className="pointer-events-none absolute right-4 top-1/2 h-4 w-4 -translate-y-1/2 text-[#d6bd97]"
-                        fill="none"
-                        stroke="currentColor"
-                        strokeWidth="2"
-                        aria-hidden="true"
-                      >
-                        <path d="M4 6l4 4 4-4" strokeLinecap="round" strokeLinejoin="round" />
-                      </svg>
-                    </div>
+                    <CategorySelect value={category} onChange={setCategory} options={CATEGORIES} inputClass={inputClass} />
                     <p className="mt-1.5 h-4 text-[11px] text-[#f4e6cd]/40">&nbsp;</p>
                   </div>
                 </div>
@@ -380,6 +355,80 @@ export default function CreateListing() {
           .animate-cl-slide-in { animation: none; }
         }
       `}</style>
+    </div>
+  );
+}
+
+// A fully custom dropdown, not a native <select>. Native <option> background
+// colors are partly OS-rendered on Windows and don't reliably respect CSS
+// across browsers — this avoids that by never using native option elements.
+function CategorySelect({ value, onChange, options, inputClass }) {
+  const [open, setOpen] = useState(false);
+  const containerRef = useRef(null);
+  const selected = options.find((o) => o.key === value);
+
+  useEffect(() => {
+    if (!open) return;
+    const onClickOutside = (e) => {
+      if (containerRef.current && !containerRef.current.contains(e.target)) setOpen(false);
+    };
+    const onKey = (e) => {
+      if (e.key === "Escape") setOpen(false);
+    };
+    document.addEventListener("mousedown", onClickOutside);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onClickOutside);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [open]);
+
+  return (
+    <div className="relative" ref={containerRef}>
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        aria-haspopup="listbox"
+        aria-expanded={open}
+        className={`${inputClass} flex items-center justify-between text-left`}
+      >
+        <span className={selected ? "" : "text-white/30"}>{selected ? selected.label : "Select…"}</span>
+        <svg
+          viewBox="0 0 16 16"
+          className={`h-4 w-4 shrink-0 text-[#d6bd97] transition-transform duration-150 ${open ? "rotate-180" : ""}`}
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+          aria-hidden="true"
+        >
+          <path d="M4 6l4 4 4-4" strokeLinecap="round" strokeLinejoin="round" />
+        </svg>
+      </button>
+
+      {open && (
+        <div
+          role="listbox"
+          className="absolute z-20 mt-2 max-h-56 w-full overflow-y-auto overscroll-contain rounded-2xl border border-[#d6bd97]/25 bg-[#1e211e] py-1.5 shadow-[0_20px_50px_rgba(0,0,0,0.5)]"
+        >
+          {options.map((o) => (
+            <button
+              key={o.key}
+              type="button"
+              role="option"
+              aria-selected={o.key === value}
+              onClick={() => {
+                onChange(o.key);
+                setOpen(false);
+              }}
+              className={`block w-full px-4 py-2.5 text-left text-sm transition-colors ${
+                o.key === value ? "bg-[#c9963f]/15 text-[#d6bd97]" : "text-[#f4e6cd]/85 hover:bg-white/[0.06]"
+              }`}
+            >
+              {o.label}
+            </button>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
