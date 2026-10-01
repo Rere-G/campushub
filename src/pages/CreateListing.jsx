@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { Link, useNavigate } from "react-router-dom";
 import { addDoc, collection, serverTimestamp } from "firebase/firestore";
 import { HiOutlineXMark, HiOutlineCheckCircle, HiOutlinePhoto, HiOutlineTag } from "react-icons/hi2";
@@ -196,14 +197,14 @@ export default function CreateListing() {
         </Link>
 
         <div
-          className="relative rounded-[24px] border border-white/10 bg-white/[0.05] p-6 shadow-[0_20px_70px_rgba(0,0,0,0.5)] backdrop-blur-xl transition-all duration-700 sm:p-8"
+          className="relative overflow-hidden rounded-[24px] border border-white/10 bg-white/[0.05] p-6 shadow-[0_20px_70px_rgba(0,0,0,0.5)] backdrop-blur-xl transition-all duration-700 sm:p-8"
           style={{
             opacity: show ? 1 : 0,
             transform: show ? "translateY(0)" : "translateY(16px)",
           }}
         >
           <div
-            className="pointer-events-none absolute inset-x-0 top-0 h-[3px] rounded-t-[24px]"
+            className="pointer-events-none absolute inset-x-0 top-0 h-[3px]"
             style={{ background: "linear-gradient(90deg,#8f774b,#c9963f)" }}
           />
 
@@ -359,35 +360,70 @@ export default function CreateListing() {
   );
 }
 
-// A fully custom dropdown, not a native <select>. Native <option> background
-// colors are partly OS-rendered on Windows and don't reliably respect CSS
-// across browsers — this avoids that by never using native option elements.
+// A fully custom dropdown, not a native <select>. Two problems this avoids:
+// 1. Native <option> background colors are partly OS-rendered on Windows and
+//    don't reliably respect CSS across browsers.
+// 2. The list is rendered through a PORTAL straight into document.body, so it
+//    is never a DOM descendant of this card — meaning the card's own
+//    overflow-hidden (needed to clip its rounded top accent bar) can never
+//    clip or cut off the open dropdown list, no matter where in the form
+//    this field sits or how little room is left below it.
 function CategorySelect({ value, onChange, options, inputClass }) {
   const [open, setOpen] = useState(false);
-  const containerRef = useRef(null);
+  const [coords, setCoords] = useState(null);
+  const buttonRef = useRef(null);
+  const listRef = useRef(null);
   const selected = options.find((o) => o.key === value);
+
+  const openDropdown = () => {
+    const rect = buttonRef.current?.getBoundingClientRect();
+    if (rect) {
+      setCoords({ top: rect.bottom + 8, left: rect.left, width: rect.width });
+    }
+    setOpen(true);
+  };
 
   useEffect(() => {
     if (!open) return;
     const onClickOutside = (e) => {
-      if (containerRef.current && !containerRef.current.contains(e.target)) setOpen(false);
+      if (
+        buttonRef.current &&
+        !buttonRef.current.contains(e.target) &&
+        listRef.current &&
+        !listRef.current.contains(e.target)
+      ) {
+        setOpen(false);
+      }
     };
     const onKey = (e) => {
       if (e.key === "Escape") setOpen(false);
     };
+    // Simplest robust behavior: close on scroll/resize rather than tracking
+    // and repositioning live — this is a short form, not a long page.
+    // Scrolling inside the list itself must NOT close it (the capture-phase
+    // listener below sees those scroll events too).
+    const onScrollOrResize = (e) => {
+      if (listRef.current && e.target instanceof Node && listRef.current.contains(e.target)) return;
+      setOpen(false);
+    };
     document.addEventListener("mousedown", onClickOutside);
     document.addEventListener("keydown", onKey);
+    window.addEventListener("scroll", onScrollOrResize, true);
+    window.addEventListener("resize", onScrollOrResize);
     return () => {
       document.removeEventListener("mousedown", onClickOutside);
       document.removeEventListener("keydown", onKey);
+      window.removeEventListener("scroll", onScrollOrResize, true);
+      window.removeEventListener("resize", onScrollOrResize);
     };
   }, [open]);
 
   return (
-    <div className="relative" ref={containerRef}>
+    <div className="relative">
       <button
+        ref={buttonRef}
         type="button"
-        onClick={() => setOpen((o) => !o)}
+        onClick={() => (open ? setOpen(false) : openDropdown())}
         aria-haspopup="listbox"
         aria-expanded={open}
         className={`${inputClass} flex items-center justify-between text-left`}
@@ -405,30 +441,35 @@ function CategorySelect({ value, onChange, options, inputClass }) {
         </svg>
       </button>
 
-      {open && (
-        <div
-          role="listbox"
-          className="absolute z-20 mt-2 max-h-56 w-full overflow-y-auto overscroll-contain rounded-2xl border border-[#d6bd97]/25 bg-[#1e211e] py-1.5 shadow-[0_20px_50px_rgba(0,0,0,0.5)]"
-        >
-          {options.map((o) => (
-            <button
-              key={o.key}
-              type="button"
-              role="option"
-              aria-selected={o.key === value}
-              onClick={() => {
-                onChange(o.key);
-                setOpen(false);
-              }}
-              className={`block w-full px-4 py-2.5 text-left text-sm transition-colors ${
-                o.key === value ? "bg-[#c9963f]/15 text-[#d6bd97]" : "text-[#f4e6cd]/85 hover:bg-white/[0.06]"
-              }`}
-            >
-              {o.label}
-            </button>
-          ))}
-        </div>
-      )}
+      {open &&
+        coords &&
+        createPortal(
+          <div
+            ref={listRef}
+            role="listbox"
+            style={{ position: "fixed", top: coords.top, left: coords.left, width: coords.width }}
+            className="z-[100] max-h-56 overflow-y-auto overscroll-contain rounded-2xl border border-[#d6bd97]/25 bg-[#1e211e] py-1.5 shadow-[0_20px_50px_rgba(0,0,0,0.6)]"
+          >
+            {options.map((o) => (
+              <button
+                key={o.key}
+                type="button"
+                role="option"
+                aria-selected={o.key === value}
+                onClick={() => {
+                  onChange(o.key);
+                  setOpen(false);
+                }}
+                className={`block w-full px-4 py-2.5 text-left text-sm transition-colors ${
+                  o.key === value ? "bg-[#c9963f]/15 text-[#d6bd97]" : "text-[#f4e6cd]/85 hover:bg-white/[0.06]"
+                }`}
+              >
+                {o.label}
+              </button>
+            ))}
+          </div>,
+          document.body
+        )}
     </div>
   );
 }
