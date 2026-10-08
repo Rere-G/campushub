@@ -93,5 +93,22 @@ service cloud.firestore {
 
       allow delete: if false;
     }
+
+    // Wishlist/"saved" markers — one doc per (user, listing) pair, doc id
+    // "<uid>_<listingId>" so existence checks and unsaving are a direct
+    // lookup/delete, never a query. The id format is enforced right here,
+    // not just trusted from the client.
+    match /saves/{saveId} {
+            allow read: if request.auth != null && saveId.split('_')[0] == request.auth.uid;
+
+      allow create: if request.auth != null
+        && request.resource.data.uid == request.auth.uid
+        && saveId == request.auth.uid + '_' + request.resource.data.listingId;
+
+      // Saves are create/delete only — never edited in place.
+      allow update: if false;
+
+      allow delete: if request.auth != null && request.auth.uid == resource.data.uid;
+    }
   }
 }
