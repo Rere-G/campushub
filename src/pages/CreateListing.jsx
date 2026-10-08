@@ -5,6 +5,7 @@ import { addDoc, collection, serverTimestamp } from "firebase/firestore";
 import { HiOutlineXMark, HiOutlineCheckCircle, HiOutlinePhoto, HiOutlineTag } from "react-icons/hi2";
 import { auth, db } from "../services/firebase";
 import dashboardBg from "../assets/dashboard-bg.jpg";
+import { CATEGORIES } from "../constants/categories";
 
 const inter = { fontFamily: "'Inter', sans-serif" };
 
@@ -15,15 +16,6 @@ const MAX_PHOTO_BYTES = 5 * 1024 * 1024; // 5 MB
 const MAX_PHOTOS = 3;
 const TITLE_MAX = 80;
 const DESCRIPTION_MAX = 600;
-
-const CATEGORIES = [
-  { key: "books", label: "📚 Books & Study" },
-  { key: "electronics", label: "💻 Electronics" },
-  { key: "clothing", label: "👕 Clothing & Accessories" },
-  { key: "dorm", label: "🪑 Dorm & Living" },
-  { key: "gaming", label: "🎮 Gaming & Hobbies" },
-  { key: "services", label: "🛠️ Services" },
-];
 
 const formatKs = (n) => {
   const num = Number(n);

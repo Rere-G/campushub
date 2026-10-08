@@ -1,6 +1,7 @@
 import { Routes, Route, Navigate } from "react-router-dom";
 import Home from "./pages/Home";
 import Marketplace from "./pages/Marketplace";
+import ListingDetail from "./pages/ListingDetail";
 import Services from "./pages/Services";
 import Login from "./pages/Login";
 import Signup from "./pages/Signup";
@@ -17,6 +18,7 @@ export default function App() {
       <Route path="/Home" element={<Gate><Home /></Gate>} />
       <Route path="/marketplace" element={<Gate><Marketplace /></Gate>} />
       <Route path="/marketplace/new" element={<Gate><CreateListing /></Gate>} />
+      <Route path="/marketplace/:id" element={<Gate><ListingDetail /></Gate>} />
       <Route path="/services" element={<Gate><Services /></Gate>} />
       <Route path="/login" element={<Login />} />
       <Route path="/signup" element={<Signup />} />
