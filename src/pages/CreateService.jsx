@@ -1,10 +1,10 @@
 import { useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { addDoc, collection, doc, increment, serverTimestamp, updateDoc } from "firebase/firestore";
-import { HiOutlineCheckCircle, HiOutlineTag } from "react-icons/hi2";
+import { HiOutlineCheckCircle, HiOutlineWrenchScrewdriver } from "react-icons/hi2";
 import { auth, db } from "../services/firebase";
 import dashboardBg from "../assets/dashboard-bg.jpg";
-import { CATEGORIES } from "../constants/categories";
+import { SERVICE_CATEGORIES } from "../constants/serviceCategories";
 import CategorySelect from "../components/CategorySelect";
 import PhotoSlot from "../components/PhotoSlot";
 
@@ -12,6 +12,8 @@ const inter = { fontFamily: "'Inter', sans-serif" };
 
 // --- Cloudinary unsigned upload config (these are NOT secrets; safe in client code) ---
 const CLOUDINARY_CLOUD_NAME = "jrwzbtls";
+// Reuses the listings preset on purpose: same unsigned upload folder, no new
+// Cloudinary setup needed.
 const CLOUDINARY_LISTINGS_PRESET = "campushub_listings_unsigned";
 const MAX_PHOTO_BYTES = 5 * 1024 * 1024; // 5 MB
 const MAX_PHOTOS = 3;
@@ -24,7 +26,7 @@ const formatKs = (n) => {
   return new Intl.NumberFormat("en-US").format(num);
 };
 
-export default function CreateListing() {
+export default function CreateService() {
   const navigate = useNavigate();
   const [show, setShow] = useState(false);
 
@@ -88,7 +90,7 @@ export default function CreateListing() {
         return next;
       });
     } catch (err) {
-      console.error("Listing photo upload failed:", err);
+      console.error("Service photo upload failed:", err);
       setPhotos((prev) => {
         const next = [...prev];
         next[slotIndex] = null;
@@ -125,17 +127,16 @@ export default function CreateListing() {
     const priceNum = Number(price);
     const photoUrls = photos.filter((p) => p && p.url).map((p) => p.url);
 
-    if (!trimmedTitle) return showPopup("Give your listing a title.", false);
+    if (!trimmedTitle) return showPopup("Give your service a title.", false);
     if (!trimmedDescription) return showPopup("Add a short description.", false);
     if (!price || !(priceNum > 0)) return showPopup("Enter a price greater than 0.", false);
     if (!category) return showPopup("Pick a category.", false);
-    if (photoUrls.length < 1) return showPopup("Add at least one photo.", false);
     if (photoUrls.length > MAX_PHOTOS) return showPopup(`Only ${MAX_PHOTOS} photos allowed.`, false);
 
     setSubmitting(true);
     try {
-      await addDoc(collection(db, "listings"), {
-        sellerId: user.uid,
+      await addDoc(collection(db, "services"), {
+        providerId: user.uid,
         title: trimmedTitle,
         description: trimmedDescription,
         price: priceNum,
@@ -144,17 +145,17 @@ export default function CreateListing() {
         status: "active",
         createdAt: serverTimestamp(),
       });
-      // Keep the Dashboard "Listings" tile in step. The post already
+      // Keep the Dashboard "Services" tile in step. The post already
       // succeeded, so a failure here is logged, never shown as a failed post.
       try {
-        await updateDoc(doc(db, "users", user.uid), { listingsCount: increment(1) });
+        await updateDoc(doc(db, "users", user.uid), { servicesCount: increment(1) });
       } catch (countErr) {
-        console.error("Couldn't update listingsCount:", countErr);
+        console.error("Couldn't update servicesCount:", countErr);
       }
       setPosted(true);
     } catch (err) {
-      console.error("Couldn't post listing:", err);
-      showPopup("Couldn't post your listing — please try again.", false);
+      console.error("Couldn't post service:", err);
+      showPopup("Couldn't post your service — please try again.", false);
     } finally {
       setSubmitting(false);
     }
@@ -181,9 +182,9 @@ export default function CreateListing() {
         aria-hidden
       />
 
-      {/* Large faint tag watermark — grounds the page in "you're pricing & listing an item",
-          reusing the same icon Admin already uses to represent listings/posts */}
-      <HiOutlineTag
+      {/* Large faint watermark — the wrench-and-screwdriver is the same icon the
+          Dashboard uses for Services, so the page reads as "offering a skill" */}
+      <HiOutlineWrenchScrewdriver
         className="pointer-events-none absolute -right-16 top-20 hidden h-[26rem] w-[26rem] -rotate-12 text-[#d6bd97]/[0.05] sm:block"
         aria-hidden="true"
       />
@@ -214,9 +215,9 @@ export default function CreateListing() {
                 <HiOutlineCheckCircle className="h-7 w-7 text-emerald-300" />
               </div>
               <h1 className="mt-4 text-2xl font-bold text-white" style={inter}>
-                Listing posted!
+                Service posted!
               </h1>
-              <p className="mt-2 text-sm text-[#f4e6cd]/55">Your item is live on CampusHub.</p>
+              <p className="mt-2 text-sm text-[#f4e6cd]/55">Your service is live on CampusHub.</p>
               <div className="mt-6 flex flex-col gap-3 sm:flex-row sm:justify-center">
                 <button
                   onClick={resetForm}
@@ -235,10 +236,10 @@ export default function CreateListing() {
           ) : (
             <>
               <h1 className="text-2xl font-bold text-white sm:text-3xl" style={inter}>
-                Post an item
+                Offer a service
               </h1>
               <p className="mt-1 text-sm text-[#f4e6cd]/55">
-                A clear title, honest description, and real photos sell faster.
+                Say what you offer, who it helps, and what the price covers.
               </p>
 
               <form onSubmit={handleSubmit} className="mt-6 space-y-5">
@@ -251,7 +252,7 @@ export default function CreateListing() {
                     type="text"
                     value={title}
                     onChange={(e) => setTitle(e.target.value)}
-                    placeholder="e.g. TI-84 Plus calculator"
+                    placeholder="e.g. Calculus tutoring, 1 hour"
                     className={inputClass}
                     maxLength={TITLE_MAX}
                   />
@@ -265,7 +266,7 @@ export default function CreateListing() {
                   <textarea
                     value={description}
                     onChange={(e) => setDescription(e.target.value)}
-                    placeholder="Condition, how long you've had it, why you're selling..."
+                    placeholder="What's included, your experience, when you're available..."
                     rows={4}
                     className={inputClass}
                     maxLength={DESCRIPTION_MAX}
@@ -296,7 +297,7 @@ export default function CreateListing() {
                   </div>
                   <div>
                     <label className={labelClass}>Category</label>
-                    <CategorySelect value={category} onChange={setCategory} options={CATEGORIES} inputClass={inputClass} />
+                    <CategorySelect value={category} onChange={setCategory} options={SERVICE_CATEGORIES} inputClass={inputClass} />
                     <p className="mt-1.5 h-4 text-[11px] text-[#f4e6cd]/40">&nbsp;</p>
                   </div>
                 </div>
@@ -305,7 +306,7 @@ export default function CreateListing() {
                   <label className={labelClass}>
                     Photos{" "}
                     <span className="text-[#f4e6cd]/40">
-                      ({filledPhotoCount}/{MAX_PHOTOS}, at least 1 required)
+                      ({filledPhotoCount}/{MAX_PHOTOS}, optional)
                     </span>
                   </label>
                   <div className="grid grid-cols-3 gap-3">
@@ -326,7 +327,7 @@ export default function CreateListing() {
                   disabled={submitting || anyUploading}
                   className="mt-2 inline-flex h-12 w-full items-center justify-center rounded-2xl bg-gradient-to-r from-[#8f774b] to-[#c9963f] text-sm font-bold uppercase tracking-[0.1em] text-[#f4e6cd] shadow-[0_8px_24px_rgba(143,119,75,0.3)] transition-all duration-200 hover:-translate-y-0.5 hover:from-[#9c8352] hover:to-[#d6a24a] disabled:cursor-not-allowed disabled:opacity-50"
                 >
-                  {submitting ? "Posting…" : anyUploading ? "Uploading photo…" : "Post listing"}
+                  {submitting ? "Posting…" : anyUploading ? "Uploading photo…" : "Post service"}
                 </button>
               </form>
             </>

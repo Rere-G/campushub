@@ -3,6 +3,7 @@ import Home from "./pages/Home";
 import Marketplace from "./pages/Marketplace";
 import ListingDetail from "./pages/ListingDetail";
 import Services from "./pages/Services";
+import CreateService from "./pages/CreateService";
 import Login from "./pages/Login";
 import Signup from "./pages/Signup";
 import Dashboard from "./pages/Dashboard";
@@ -20,6 +21,7 @@ export default function App() {
       <Route path="/marketplace/new" element={<Gate><CreateListing /></Gate>} />
       <Route path="/marketplace/:id" element={<Gate><ListingDetail /></Gate>} />
       <Route path="/services" element={<Gate><Services /></Gate>} />
+      <Route path="/services/new" element={<Gate><CreateService /></Gate>} />
       <Route path="/login" element={<Login />} />
       <Route path="/signup" element={<Signup />} />
       <Route path="/dashboard" element={<Gate><Dashboard /></Gate>} />
