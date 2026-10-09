@@ -112,7 +112,7 @@ export default function ListingDetail() {
     const was = saved;
     setSaved(!was);
     try {
-      await toggleSave({ uid, listingId: id, currentlySaved: was });
+      await toggleSave({ uid, itemId: id, itemType: "listing", currentlySaved: was });
     } catch (err) {
       console.error("Save toggle failed:", err);
       setSaved(was);

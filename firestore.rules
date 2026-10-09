@@ -58,7 +58,7 @@ service cloud.firestore {
         && request.resource.data.sellerId == request.auth.uid
         && request.resource.data.status == 'active'
         && request.resource.data.category in
-             ['books', 'electronics', 'clothing', 'dorm', 'gaming', 'services']
+             ['books', 'electronics', 'clothing', 'dorm', 'gaming']
         && request.resource.data.photos is list
         && request.resource.data.photos.size() <= 3;
 
@@ -81,6 +81,39 @@ service cloud.firestore {
       allow delete: if false;
     }
 
+    match /services/{serviceId} {
+      // Any signed-in user can browse services.
+      allow read: if request.auth != null;
+
+      // Only an approved, non-banned user may post — and only as themselves.
+      allow create: if isApprovedAndActive()
+        && request.resource.data.providerId == request.auth.uid
+        && request.resource.data.status == 'active'
+        && request.resource.data.category in
+             ['tutoring', 'tech', 'design', 'writing', 'events', 'other']
+        && request.resource.data.photos is list
+        && request.resource.data.photos.size() <= 3;
+
+      allow update: if request.auth != null && (
+        // Owner: may edit their own service's content, and move it between
+        // active / paused / removed themselves (their own listing's
+        // lifecycle — "paused" stands in for "sold", since a service isn't
+        // bought once the way an item is). providerId can never change.
+        (request.auth.uid == resource.data.providerId
+          && request.resource.data.providerId == resource.data.providerId
+          && request.resource.data.status in ['active', 'paused', 'removed'])
+        ||
+        // Admin: may change ONLY status, and only to active/removed
+        // (moderation — never 'paused', that's the provider's own call).
+        (isAdmin()
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status'])
+          && request.resource.data.status in ['active', 'removed'])
+      );
+
+      // Soft-delete only — never a real delete.
+      allow delete: if false;
+    }
+
     // A small public-safe mirror of {name, photo} per user, kept fresh by the
     // user themselves whenever they save their profile. Lets listings show a
     // seller's current name/photo without opening up reads on /users (which
@@ -94,16 +127,20 @@ service cloud.firestore {
       allow delete: if false;
     }
 
-    // Wishlist/"saved" markers — one doc per (user, listing) pair, doc id
-    // "<uid>_<listingId>" so existence checks and unsaving are a direct
+    // Wishlist/"saved" markers — one doc per (user, item) pair, doc id
+    // "<uid>_<itemId>" so existence checks and unsaving are a direct
     // lookup/delete, never a query. The id format is enforced right here,
-    // not just trusted from the client.
+    // not just trusted from the client. itemType says which collection the
+    // saved item lives in ("listing" or "service") — it isn't load-bearing
+    // for access (the id format alone already proves ownership), it's there
+    // so a saved doc always says what kind of thing it's pointing at.
     match /saves/{saveId} {
             allow read: if request.auth != null && saveId.split('_')[0] == request.auth.uid;
 
       allow create: if request.auth != null
         && request.resource.data.uid == request.auth.uid
-        && saveId == request.auth.uid + '_' + request.resource.data.listingId;
+        && request.resource.data.itemType in ['listing', 'service']
+        && saveId == request.auth.uid + '_' + request.resource.data.itemId;
 
       // Saves are create/delete only — never edited in place.
       allow update: if false;

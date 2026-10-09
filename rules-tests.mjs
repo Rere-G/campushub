@@ -28,6 +28,17 @@ const listingData = (overrides = {}) => ({
   ...overrides,
 });
 
+const serviceData = (overrides = {}) => ({
+  providerId: "approved-user",
+  title: "x",
+  description: "x",
+  price: 5,
+  category: "tutoring",
+  photos: ["test.jpg"],
+  status: "active",
+  ...overrides,
+});
+
 async function main() {
   const testEnv = await initializeTestEnvironment({
     projectId: PROJECT_ID,
@@ -38,7 +49,7 @@ async function main() {
     },
   });
 
-  // ---- Seed test personas + one existing listing, bypassing rules ----
+  // ---- Seed test personas + one existing listing/service, bypassing rules ----
   await testEnv.withSecurityRulesDisabled(async (context) => {
     const db = context.firestore();
     await setDoc(doc(db, "users/approved-user"), { approved: true, banned: false, role: "student" });
@@ -47,6 +58,7 @@ async function main() {
     await setDoc(doc(db, "users/banned-user"), { approved: true, banned: true, role: "student" });
     await setDoc(doc(db, "users/admin-user"), { approved: true, banned: false, role: "admin" });
     await setDoc(doc(db, "listings/listing1"), listingData({ sellerId: "approved-user" }));
+    await setDoc(doc(db, "services/service1"), serviceData({ providerId: "approved-user" }));
   });
 
   const results = [];
@@ -64,6 +76,10 @@ async function main() {
   const resetListing1 = () =>
     testEnv.withSecurityRulesDisabled(async (context) => {
       await updateDoc(doc(context.firestore(), "listings/listing1"), { status: "active" });
+    });
+  const resetService1 = () =>
+    testEnv.withSecurityRulesDisabled(async (context) => {
+      await updateDoc(doc(context.firestore(), "services/service1"), { status: "active" });
     });
 
   // 1. Approved student creates a listing, as themselves.
@@ -132,74 +148,169 @@ async function main() {
     );
   });
 
+  // 11. Approved student creates a service, as themselves.
+  await run("11. approved student creates service -> Allow", async () => {
+    const db = testEnv.authenticatedContext("approved-user").firestore();
+    await assertSucceeds(setDoc(doc(db, "services/case11"), serviceData({ providerId: "approved-user" })));
+  });
+
+  // 12. Pending student creates a service, as themselves.
+  await run("12. pending student creates service -> Deny", async () => {
+    const db = testEnv.authenticatedContext("pending-user").firestore();
+    await assertFails(setDoc(doc(db, "services/case12"), serviceData({ providerId: "pending-user" })));
+  });
+
+  // 13. Banned student creates a service, as themselves.
+  await run("13. banned student creates service -> Deny", async () => {
+    const db = testEnv.authenticatedContext("banned-user").firestore();
+    await assertFails(setDoc(doc(db, "services/case13"), serviceData({ providerId: "banned-user" })));
+  });
+
+  // 14. Approved student spoofs someone else's providerId.
+  await run("14. providerId mismatch -> Deny", async () => {
+    const db = testEnv.authenticatedContext("approved-user").firestore();
+    await assertFails(setDoc(doc(db, "services/case14"), serviceData({ providerId: "other-approved-user" })));
+  });
+
+  // 15. A different approved student edits someone else's service.
+  await run("15. stranger edits service price -> Deny", async () => {
+    const db = testEnv.authenticatedContext("other-approved-user").firestore();
+    await assertFails(updateDoc(doc(db, "services/service1"), { price: 999 }));
+  });
+
+  // 16. Owner pauses their own service.
+  await run("16. owner sets status=paused -> Allow", async () => {
+    const db = testEnv.authenticatedContext("approved-user").firestore();
+    await assertSucceeds(updateDoc(doc(db, "services/service1"), { status: "paused" }));
+  });
+  await resetService1();
+
+  // 17. Admin removes someone else's service (status only).
+  await run("17. admin sets status=removed -> Allow", async () => {
+    const db = testEnv.authenticatedContext("admin-user").firestore();
+    await assertSucceeds(updateDoc(doc(db, "services/service1"), { status: "removed" }));
+  });
+  await resetService1();
+
+  // 18. Admin tries to change price too, not just status.
+  await run("18. admin changes price alongside status -> Deny", async () => {
+    const db = testEnv.authenticatedContext("admin-user").firestore();
+    await assertFails(updateDoc(doc(db, "services/service1"), { status: "removed", price: 1 }));
+  });
+
   // ---- Seed one existing save for the delete/read test cases ----
   await testEnv.withSecurityRulesDisabled(async (context) => {
     const db = context.firestore();
     await setDoc(doc(db, "saves/approved-user_listing1"), {
       uid: "approved-user",
-      listingId: "listing1",
+      itemId: "listing1",
+      itemType: "listing",
       createdAt: new Date(),
     });
   });
 
-  // 11. User saves a listing, correct doc id and uid.
-  await run("11. correct save create -> Allow", async () => {
+  // 19. User saves a listing, correct doc id, uid, and itemType.
+  await run("19. correct save create (listing) -> Allow", async () => {
     const db = testEnv.authenticatedContext("other-approved-user").firestore();
     await assertSucceeds(
       setDoc(doc(db, "saves/other-approved-user_listing1"), {
         uid: "other-approved-user",
-        listingId: "listing1",
+        itemId: "listing1",
+        itemType: "listing",
         createdAt: new Date(),
       })
     );
   });
 
-  // 12. Doc id doesn't match "<uid>_<listingId>".
-  await run("12. save with mismatched doc id -> Deny", async () => {
+  // 20. Same shape, but saving a service instead — proves itemType isn't
+  // hardcoded to "listing" anywhere in the rule.
+  await run("20. correct save create (service) -> Allow", async () => {
+    const db = testEnv.authenticatedContext("other-approved-user").firestore();
+    await assertSucceeds(
+      setDoc(doc(db, "saves/other-approved-user_service1"), {
+        uid: "other-approved-user",
+        itemId: "service1",
+        itemType: "service",
+        createdAt: new Date(),
+      })
+    );
+  });
+
+  // 21. itemType missing entirely.
+  await run("21. save without itemType -> Deny", async () => {
+    const db = testEnv.authenticatedContext("other-approved-user").firestore();
+    await assertFails(
+      setDoc(doc(db, "saves/other-approved-user_listing1"), {
+        uid: "other-approved-user",
+        itemId: "listing1",
+        createdAt: new Date(),
+      })
+    );
+  });
+
+  // 22. itemType set to something other than "listing"/"service".
+  await run("22. save with invalid itemType -> Deny", async () => {
+    const db = testEnv.authenticatedContext("other-approved-user").firestore();
+    await assertFails(
+      setDoc(doc(db, "saves/other-approved-user_listing1"), {
+        uid: "other-approved-user",
+        itemId: "listing1",
+        itemType: "banana",
+        createdAt: new Date(),
+      })
+    );
+  });
+
+  // 23. Doc id doesn't match "<uid>_<itemId>".
+  await run("23. save with mismatched doc id -> Deny", async () => {
     const db = testEnv.authenticatedContext("other-approved-user").firestore();
     await assertFails(
       setDoc(doc(db, "saves/wrong-id"), {
         uid: "other-approved-user",
-        listingId: "listing1",
+        itemId: "listing1",
+        itemType: "listing",
         createdAt: new Date(),
       })
     );
   });
 
-  // 13. uid field spoofed to someone else's, even with a matching-looking id.
-  await run("13. save with spoofed uid field -> Deny", async () => {
+  // 24. uid field spoofed to someone else's, even with a matching-looking id.
+  await run("24. save with spoofed uid field -> Deny", async () => {
     const db = testEnv.authenticatedContext("other-approved-user").firestore();
     await assertFails(
       setDoc(doc(db, "saves/approved-user_listing1"), {
         uid: "approved-user",
-        listingId: "listing1",
+        itemId: "listing1",
+        itemType: "listing",
         createdAt: new Date(),
       })
     );
   });
 
-  // 14. Owner reads their own save.
-  await run("14. owner reads own save -> Allow", async () => {
+  // 25. Owner reads their own save.
+  await run("25. owner reads own save -> Allow", async () => {
     const db = testEnv.authenticatedContext("approved-user").firestore();
     await assertSucceeds(getDoc(doc(db, "saves/approved-user_listing1")));
   });
 
-  // 15. A different user tries to read someone else's save.
-  await run("15. stranger reads someone else's save -> Deny", async () => {
+  // 26. A different user tries to read someone else's save.
+  await run("26. stranger reads someone else's save -> Deny", async () => {
     const db = testEnv.authenticatedContext("other-approved-user").firestore();
     await assertFails(getDoc(doc(db, "saves/approved-user_listing1")));
   });
 
-  // 16. Owner deletes (unsaves) their own save.
-  await run("16. owner deletes own save -> Allow", async () => {
+  // 27. Owner deletes (unsaves) their own save.
+  await run("27. owner deletes own save -> Allow", async () => {
     const db = testEnv.authenticatedContext("approved-user").firestore();
     await assertSucceeds(deleteDoc(doc(db, "saves/approved-user_listing1")));
   });
-  // 17. Owner reads a save that doesn't exist yet (the "already saved?" lookup).
-  await run("17. owner reads non-existent save -> Allow", async () => {
+
+  // 28. Owner reads a save that doesn't exist yet (the "already saved?" lookup).
+  await run("28. owner reads non-existent save -> Allow", async () => {
     const db = testEnv.authenticatedContext("approved-user").firestore();
     await assertSucceeds(getDoc(doc(db, "saves/approved-user_never-saved")));
   });
+
   await testEnv.cleanup();
 
   const failed = results.filter((r) => !r.pass);

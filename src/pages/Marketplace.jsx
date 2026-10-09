@@ -142,7 +142,7 @@ export default function Marketplace() {
       return next;
     });
     try {
-      await toggleSave({ uid, listingId, currentlySaved: was });
+      await toggleSave({ uid, itemId: listingId, itemType: "listing", currentlySaved: was });
     } catch (err) {
       console.error("Save toggle failed:", err);
       setSavedIds((prev) => {
