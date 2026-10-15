@@ -47,6 +47,20 @@ const commentData = (overrides = {}) => ({
   ...overrides,
 });
 
+const reportData = (overrides = {}) => ({
+  reporterId: "third-user",
+  targetType: "listing",
+  itemType: "listing",
+  itemId: "listing1",
+  commentId: "",
+  targetOwnerId: "approved-user",
+  reason: "spam",
+  note: "",
+  status: "open",
+  createdAt: serverTimestamp(),
+  ...overrides,
+});
+
 async function main() {
   const testEnv = await initializeTestEnvironment({
     projectId: PROJECT_ID,
@@ -489,6 +503,275 @@ async function main() {
   await run("51. signed-out user reads comments -> Deny", async () => {
     const db = testEnv.unauthenticatedContext().firestore();
     await assertFails(getDocs(collection(db, "listings/listing1/comments")));
+  });
+
+  // ---- Reports ----
+  // Seed: a third approved student (the reporter), one comment under listing1
+  // and one under service1 (both by other-approved-user), and one existing
+  // report for the read/update cases.
+  await testEnv.withSecurityRulesDisabled(async (context) => {
+    const db = context.firestore();
+    await setDoc(doc(db, "users/third-user"), { approved: true, banned: false, role: "student" });
+    // Only used by the Deny cases below, so none of them can collide with a
+    // report that an Allow case already created.
+    await setDoc(doc(db, "services/service-neg"), serviceData({ providerId: "approved-user" }));
+    const cm = { authorId: "other-approved-user", itemOwnerId: "approved-user", text: "hi", createdAt: new Date() };
+    await setDoc(doc(db, "listings/listing1/comments/rc1"), cm);
+    await setDoc(doc(db, "services/service1/comments/rc2"), cm);
+    await setDoc(doc(db, "reports/other-approved-user_listing1"), {
+      reporterId: "other-approved-user",
+      targetType: "listing",
+      itemType: "listing",
+      itemId: "listing1",
+      commentId: "",
+      targetOwnerId: "approved-user",
+      reason: "spam",
+      note: "",
+      status: "open",
+      createdAt: new Date(),
+    });
+  });
+
+  // 52. Report a listing.
+  await run("52. approved student reports a listing -> Allow", async () => {
+    const db = testEnv.authenticatedContext("third-user").firestore();
+    await assertSucceeds(setDoc(doc(db, "reports/third-user_listing1"), reportData()));
+  });
+
+  // 53. Report a service.
+  await run("53. approved student reports a service -> Allow", async () => {
+    const db = testEnv.authenticatedContext("third-user").firestore();
+    await assertSucceeds(
+      setDoc(
+        doc(db, "reports/third-user_service1"),
+        reportData({ targetType: "service", itemType: "service", itemId: "service1" })
+      )
+    );
+  });
+
+  // 54. Report a comment under a listing (owner = the comment's author).
+  await run("54. approved student reports a listing comment -> Allow", async () => {
+    const db = testEnv.authenticatedContext("third-user").firestore();
+    await assertSucceeds(
+      setDoc(
+        doc(db, "reports/third-user_listing1_rc1"),
+        reportData({ targetType: "comment", commentId: "rc1", targetOwnerId: "other-approved-user" })
+      )
+    );
+  });
+
+  // 55. Report a comment under a service.
+  await run("55. approved student reports a service comment -> Allow", async () => {
+    const db = testEnv.authenticatedContext("third-user").firestore();
+    await assertSucceeds(
+      setDoc(
+        doc(db, "reports/third-user_service1_rc2"),
+        reportData({
+          targetType: "comment",
+          itemType: "service",
+          itemId: "service1",
+          commentId: "rc2",
+          targetOwnerId: "other-approved-user",
+        })
+      )
+    );
+  });
+
+  // 56. Reporting the same listing twice (case 52 already did).
+  await run("56. duplicate report -> Deny", async () => {
+    const db = testEnv.authenticatedContext("third-user").firestore();
+    await assertFails(setDoc(doc(db, "reports/third-user_listing1"), reportData({ reason: "scam" })));
+  });
+
+  // 57. Pending student.
+  await run("57. pending student reports -> Deny", async () => {
+    const db = testEnv.authenticatedContext("pending-user").firestore();
+    await assertFails(
+      setDoc(doc(db, "reports/pending-user_listing1"), reportData({ reporterId: "pending-user" }))
+    );
+  });
+
+  // 58. Banned student.
+  await run("58. banned student reports -> Deny", async () => {
+    const db = testEnv.authenticatedContext("banned-user").firestore();
+    await assertFails(
+      setDoc(doc(db, "reports/banned-user_listing1"), reportData({ reporterId: "banned-user" }))
+    );
+  });
+
+  // 59. Filing a report in someone else's name. The id and every other field
+  // are valid, so the ONLY thing wrong is reporterId.
+  await run("59. reporterId spoofed -> Deny", async () => {
+    const db = testEnv.authenticatedContext("third-user").firestore();
+    await assertFails(
+      setDoc(
+        doc(db, "reports/third-user_service-neg"),
+        reportData({
+          targetType: "service",
+          itemType: "service",
+          itemId: "service-neg",
+          reporterId: "other-approved-user",
+        })
+      )
+    );
+  });
+
+  // 60. Naming the wrong person as the poster (would let a ban hit them).
+  await run("60. targetOwnerId forged -> Deny", async () => {
+    const db = testEnv.authenticatedContext("third-user").firestore();
+    await assertFails(
+      setDoc(
+        doc(db, "reports/third-user_service-neg"),
+        reportData({ targetType: "service", itemType: "service", itemId: "service-neg", targetOwnerId: "admin-user" })
+      )
+    );
+  });
+
+  // 61. Reporting your own listing.
+  await run("61. self-report -> Deny", async () => {
+    const db = testEnv.authenticatedContext("approved-user").firestore();
+    await assertFails(
+      setDoc(doc(db, "reports/approved-user_listing1"), reportData({ reporterId: "approved-user" }))
+    );
+  });
+
+  // 62. The listing doesn't exist.
+  await run("62. report non-existent listing -> Deny", async () => {
+    const db = testEnv.authenticatedContext("third-user").firestore();
+    await assertFails(
+      setDoc(doc(db, "reports/third-user_no-such-listing"), reportData({ itemId: "no-such-listing" }))
+    );
+  });
+
+  // 63. Reason outside the fixed list.
+  await run("63. invalid reason -> Deny", async () => {
+    const db = testEnv.authenticatedContext("third-user").firestore();
+    await assertFails(
+      setDoc(
+        doc(db, "reports/third-user_service-neg"),
+        reportData({ targetType: "service", itemType: "service", itemId: "service-neg", reason: "boring" })
+      )
+    );
+  });
+
+  // 64. Note over 300 characters.
+  await run("64. note over 300 characters -> Deny", async () => {
+    const db = testEnv.authenticatedContext("third-user").firestore();
+    await assertFails(
+      setDoc(
+        doc(db, "reports/third-user_service-neg"),
+        reportData({ targetType: "service", itemType: "service", itemId: "service-neg", note: "a".repeat(301) })
+      )
+    );
+  });
+
+  // 65. Doc id that doesn't follow "<uid>_<itemId>".
+  await run("65. report with wrong doc id -> Deny", async () => {
+    const db = testEnv.authenticatedContext("third-user").firestore();
+    await assertFails(setDoc(doc(db, "reports/some-random-id"), reportData()));
+  });
+
+  // 66. Client-chosen timestamp.
+  await run("66. client-set createdAt -> Deny", async () => {
+    const db = testEnv.authenticatedContext("third-user").firestore();
+    await assertFails(
+      setDoc(
+        doc(db, "reports/third-user_service-neg"),
+        reportData({
+          targetType: "service",
+          itemType: "service",
+          itemId: "service-neg",
+          createdAt: new Date("2020-01-01"),
+        })
+      )
+    );
+  });
+
+  // 67. Arriving already resolved.
+  await run("67. report created as actioned -> Deny", async () => {
+    const db = testEnv.authenticatedContext("third-user").firestore();
+    await assertFails(
+      setDoc(
+        doc(db, "reports/third-user_service-neg"),
+        reportData({ targetType: "service", itemType: "service", itemId: "service-neg", status: "actioned" })
+      )
+    );
+  });
+
+  // 68. Reporter reads their own report.
+  await run("68. reporter reads own report -> Allow", async () => {
+    const db = testEnv.authenticatedContext("other-approved-user").firestore();
+    await assertSucceeds(getDoc(doc(db, "reports/other-approved-user_listing1")));
+  });
+
+  // 69. "Have I reported this already?" lookup on a report that doesn't exist.
+  await run("69. reporter reads own non-existent report -> Allow", async () => {
+    const db = testEnv.authenticatedContext("other-approved-user").firestore();
+    await assertSucceeds(getDoc(doc(db, "reports/other-approved-user_service1")));
+  });
+
+  // 70. Someone else's report.
+  await run("70. stranger reads someone else's report -> Deny", async () => {
+    const db = testEnv.authenticatedContext("approved-user").firestore();
+    await assertFails(getDoc(doc(db, "reports/other-approved-user_listing1")));
+  });
+
+  // 71. A student listing all reports.
+  await run("71. student lists reports -> Deny", async () => {
+    const db = testEnv.authenticatedContext("third-user").firestore();
+    await assertFails(getDocs(collection(db, "reports")));
+  });
+
+  // 72. Admin listing all reports (the Reports tab).
+  await run("72. admin lists reports -> Allow", async () => {
+    const db = testEnv.authenticatedContext("admin-user").firestore();
+    await assertSucceeds(getDocs(collection(db, "reports")));
+  });
+
+  // 73. Admin dismisses a report.
+  await run("73. admin resolves a report -> Allow", async () => {
+    const db = testEnv.authenticatedContext("admin-user").firestore();
+    await assertSucceeds(
+      updateDoc(doc(db, "reports/other-approved-user_listing1"), {
+        status: "dismissed",
+        action: "dismissed",
+        resolvedBy: "admin-user",
+        resolvedAt: serverTimestamp(),
+      })
+    );
+  });
+
+  // 74. Admin rewriting what the student reported.
+  await run("74. admin changes the reason -> Deny", async () => {
+    const db = testEnv.authenticatedContext("admin-user").firestore();
+    await assertFails(
+      updateDoc(doc(db, "reports/third-user_listing1"), {
+        status: "dismissed",
+        action: "dismissed",
+        resolvedBy: "admin-user",
+        resolvedAt: serverTimestamp(),
+        reason: "other",
+      })
+    );
+  });
+
+  // 75. Reporter resolving their own report.
+  await run("75. reporter updates own report -> Deny", async () => {
+    const db = testEnv.authenticatedContext("third-user").firestore();
+    await assertFails(
+      updateDoc(doc(db, "reports/third-user_listing1"), {
+        status: "dismissed",
+        action: "dismissed",
+        resolvedBy: "third-user",
+        resolvedAt: serverTimestamp(),
+      })
+    );
+  });
+
+  // 76. Nobody deletes reports, not even admins.
+  await run("76. admin deletes a report -> Deny", async () => {
+    const db = testEnv.authenticatedContext("admin-user").firestore();
+    await assertFails(deleteDoc(doc(db, "reports/third-user_listing1")));
   });
 
   await testEnv.cleanup();

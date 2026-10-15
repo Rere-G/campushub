@@ -22,6 +22,30 @@ service cloud.firestore {
         && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.get('banned', false) == false;
     }
 
+    // ---- Reports helpers ----
+    // The reported content must exist AND targetOwnerId must be its real
+    // author. Admins act on targetOwnerId ("ban the poster"), so it must
+    // never be something the reporter typed. A get() of a missing document
+    // fails the rule, so a report on content that doesn't exist is refused.
+    function reportTargetOk(d) {
+      return (d.targetType == 'listing' && d.itemType == 'listing' && d.commentId == ''
+          && get(/databases/$(database)/documents/listings/$(d.itemId)).data.sellerId == d.targetOwnerId)
+        || (d.targetType == 'service' && d.itemType == 'service' && d.commentId == ''
+          && get(/databases/$(database)/documents/services/$(d.itemId)).data.providerId == d.targetOwnerId)
+        || (d.targetType == 'comment' && d.itemType == 'listing' && d.commentId != ''
+          && get(/databases/$(database)/documents/listings/$(d.itemId)/comments/$(d.commentId)).data.authorId == d.targetOwnerId)
+        || (d.targetType == 'comment' && d.itemType == 'service' && d.commentId != ''
+          && get(/databases/$(database)/documents/services/$(d.itemId)/comments/$(d.commentId)).data.authorId == d.targetOwnerId);
+    }
+
+    // One report per person per piece of content: the doc id is
+    // "<uid>_<itemId>" for a listing/service, "<uid>_<itemId>_<commentId>"
+    // for a comment. Reporting twice hits the update rule and is refused.
+    function reportIdOk(reportId, d) {
+      return (d.targetType != 'comment' && reportId == request.auth.uid + '_' + d.itemId)
+        || (d.targetType == 'comment' && reportId == request.auth.uid + '_' + d.itemId + '_' + d.commentId);
+    }
+
     match /users/{uid} {
       // You read your own doc; an admin may read any user's doc (to review them).
       allow read: if request.auth != null && (request.auth.uid == uid || isAdmin());
@@ -202,6 +226,46 @@ service cloud.firestore {
       allow update: if false;
 
       allow delete: if request.auth != null && request.auth.uid == resource.data.uid;
+    }
+
+    // Student reports of listings, services and comments, reviewed by admins.
+    match /reports/{reportId} {
+      // A student may check whether THEY already reported something (direct
+      // lookup by id, even if it doesn't exist yet). Only admins may list or
+      // read everyone's reports.
+      allow get: if request.auth != null
+        && (reportId.split('_')[0] == request.auth.uid || isAdmin());
+      allow list: if isAdmin();
+
+      allow create: if isApprovedAndActive()
+        && request.resource.data.keys().hasOnly([
+             'reporterId', 'targetType', 'itemType', 'itemId', 'commentId',
+             'targetOwnerId', 'reason', 'note', 'status', 'createdAt'])
+        && request.resource.data.reporterId == request.auth.uid
+        && request.resource.data.targetType in ['listing', 'service', 'comment']
+        && request.resource.data.itemType in ['listing', 'service']
+        && request.resource.data.itemId is string
+        && request.resource.data.commentId is string
+        && request.resource.data.targetOwnerId != request.auth.uid
+        && request.resource.data.reason in ['scam', 'prohibited', 'offensive', 'spam', 'other']
+        && request.resource.data.note is string
+        && request.resource.data.note.size() <= 300
+        && request.resource.data.status == 'open'
+        && request.resource.data.createdAt == request.time
+        && reportIdOk(reportId, request.resource.data)
+        && reportTargetOk(request.resource.data);
+
+      // Admin resolves a report: only these four fields may change.
+      allow update: if isAdmin()
+        && request.resource.data.diff(resource.data).affectedKeys()
+             .hasOnly(['status', 'action', 'resolvedBy', 'resolvedAt'])
+        && request.resource.data.status in ['dismissed', 'actioned']
+        && request.resource.data.action in ['dismissed', 'removed', 'banned']
+        && request.resource.data.resolvedBy == request.auth.uid
+        && request.resource.data.resolvedAt == request.time;
+
+      // Reports are a record — never deleted.
+      allow delete: if false;
     }
   }
 }
