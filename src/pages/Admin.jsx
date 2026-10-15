@@ -17,6 +17,7 @@ import {
 import { auth, db } from "../services/firebase";
 import dashboardBg from "../assets/dashboard-bg.jpg";
 import ReportsPanel from "../components/ReportsPanel";
+import PostsPanel from "../components/PostsPanel";
 
 /* ─── Reduced-motion (module-level, read once) ─────────────────── */
 const prefersReduced =
@@ -159,7 +160,7 @@ export default function Admin() {
   const [tab, setTab] = useState("pending");
   const [busyId, setBusyId] = useState(null);
   const [confirmState, setConfirmState] = useState(null); // { user, kind: 'ban' | 'revoke' }
-  const [section, setSection] = useState("users"); // "users" | "reports"
+  const [section, setSection] = useState("users"); // "users" | "posts" | "reports"
   const [openReports, setOpenReports] = useState(0);
   const [popup, setPopup] = useState({ show: false, text: "", ok: true });
 
@@ -323,7 +324,13 @@ export default function Admin() {
             active={section === "users"}
             onClick={() => setSection("users")}
           />
-          <SectionCard icon={HiOutlineTag} title="Posts" desc="Review and remove listings and services." locked />
+          <SectionCard
+            icon={HiOutlineTag}
+            title="Posts"
+            desc="Review, remove and restore listings and services."
+            active={section === "posts"}
+            onClick={() => setSection("posts")}
+          />
           <SectionCard
             icon={HiOutlineFlag}
             title="Reports"
@@ -341,7 +348,9 @@ export default function Admin() {
           }`}
         >
           <div className="pointer-events-none absolute inset-x-0 top-0 h-px" style={{ background: "linear-gradient(90deg,transparent,rgba(201,150,63,0.45),transparent)" }} />
-          {section === "reports" && uid ? (
+          {section === "posts" && uid ? (
+            <PostsPanel users={users} toast={toast} />
+          ) : section === "reports" && uid ? (
             <ReportsPanel
               adminUid={uid}
               users={users}
