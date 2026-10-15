@@ -79,6 +79,34 @@ service cloud.firestore {
 
       // Soft-delete only — never a real delete.
       allow delete: if false;
+
+      // Public Q&A under a listing. One doc per comment, never edited.
+      // itemOwnerId is copied from the parent here and checked against it, so
+      // it can't be forged. Deletes read the stored itemOwnerId instead of
+      // fetching the parent again. A removed listing accepts no new comments.
+      match /comments/{commentId} {
+        allow read: if request.auth != null;
+
+        allow create: if isApprovedAndActive()
+          && request.resource.data.keys().hasOnly(['authorId', 'itemOwnerId', 'text', 'createdAt'])
+          && request.resource.data.authorId == request.auth.uid
+          && exists(/databases/$(database)/documents/listings/$(listingId))
+          && get(/databases/$(database)/documents/listings/$(listingId)).data.status != 'removed'
+          && request.resource.data.itemOwnerId ==
+               get(/databases/$(database)/documents/listings/$(listingId)).data.sellerId
+          && request.resource.data.text is string
+          && request.resource.data.text.size() >= 1
+          && request.resource.data.text.size() <= 500
+          && request.resource.data.createdAt == request.time;
+
+        allow update: if false;
+
+        // The author, the listing's owner, or an admin (moderation).
+        allow delete: if request.auth != null && (
+          request.auth.uid == resource.data.authorId
+          || request.auth.uid == resource.data.itemOwnerId
+          || isAdmin());
+      }
     }
 
     match /services/{serviceId} {
@@ -112,6 +140,34 @@ service cloud.firestore {
 
       // Soft-delete only — never a real delete.
       allow delete: if false;
+
+      // Public Q&A under a service. One doc per comment, never edited.
+      // itemOwnerId is copied from the parent here and checked against it, so
+      // it can't be forged. Deletes read the stored itemOwnerId instead of
+      // fetching the parent again. A removed service accepts no new comments.
+      match /comments/{commentId} {
+        allow read: if request.auth != null;
+
+        allow create: if isApprovedAndActive()
+          && request.resource.data.keys().hasOnly(['authorId', 'itemOwnerId', 'text', 'createdAt'])
+          && request.resource.data.authorId == request.auth.uid
+          && exists(/databases/$(database)/documents/services/$(serviceId))
+          && get(/databases/$(database)/documents/services/$(serviceId)).data.status != 'removed'
+          && request.resource.data.itemOwnerId ==
+               get(/databases/$(database)/documents/services/$(serviceId)).data.providerId
+          && request.resource.data.text is string
+          && request.resource.data.text.size() >= 1
+          && request.resource.data.text.size() <= 500
+          && request.resource.data.createdAt == request.time;
+
+        allow update: if false;
+
+        // The author, the service's owner, or an admin (moderation).
+        allow delete: if request.auth != null && (
+          request.auth.uid == resource.data.authorId
+          || request.auth.uid == resource.data.itemOwnerId
+          || isAdmin());
+      }
     }
 
     // A small public-safe mirror of {name, photo} per user, kept fresh by the

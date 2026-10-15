@@ -13,7 +13,7 @@ import {
   assertSucceeds,
   assertFails,
 } from "@firebase/rules-unit-testing";
-import { doc, setDoc, updateDoc, deleteDoc, getDoc } from "firebase/firestore";
+import { doc, setDoc, updateDoc, deleteDoc, getDoc, getDocs, collection, serverTimestamp } from "firebase/firestore";
 
 const PROJECT_ID = "demo-campushub-rules-test"; // fake id, local emulator only
 
@@ -39,6 +39,14 @@ const serviceData = (overrides = {}) => ({
   ...overrides,
 });
 
+const commentData = (overrides = {}) => ({
+  authorId: "other-approved-user",
+  itemOwnerId: "approved-user",
+  text: "Is this still available?",
+  createdAt: serverTimestamp(),
+  ...overrides,
+});
+
 async function main() {
   const testEnv = await initializeTestEnvironment({
     projectId: PROJECT_ID,
@@ -59,6 +67,20 @@ async function main() {
     await setDoc(doc(db, "users/admin-user"), { approved: true, banned: false, role: "admin" });
     await setDoc(doc(db, "listings/listing1"), listingData({ sellerId: "approved-user" }));
     await setDoc(doc(db, "services/service1"), serviceData({ providerId: "approved-user" }));
+  });
+
+  // ---- Seed for the comments cases: a removed listing/service, plus existing
+  // comments (written by other-approved-user on approved-user's items) that the
+  // delete cases can each consume one of. ----
+  await testEnv.withSecurityRulesDisabled(async (context) => {
+    const db = context.firestore();
+    await setDoc(doc(db, "listings/listing-removed"), listingData({ status: "removed" }));
+    await setDoc(doc(db, "services/service-removed"), serviceData({ status: "removed" }));
+    const old = { authorId: "other-approved-user", itemOwnerId: "approved-user", text: "hi", createdAt: new Date() };
+    for (const id of ["del-author", "del-owner", "del-stranger", "del-admin", "del-update"]) {
+      await setDoc(doc(db, `listings/listing1/comments/${id}`), old);
+    }
+    await setDoc(doc(db, "services/service1/comments/del-provider"), old);
   });
 
   const results = [];
@@ -309,6 +331,164 @@ async function main() {
   await run("28. owner reads non-existent save -> Allow", async () => {
     const db = testEnv.authenticatedContext("approved-user").firestore();
     await assertSucceeds(getDoc(doc(db, "saves/approved-user_never-saved")));
+  });
+
+  // ---- Comments (listings + services) ----
+
+  // 29. Approved student asks a question on someone else's listing.
+  await run("29. approved student comments on listing -> Allow", async () => {
+    const db = testEnv.authenticatedContext("other-approved-user").firestore();
+    await assertSucceeds(setDoc(doc(db, "listings/listing1/comments/c29"), commentData()));
+  });
+
+  // 30. The seller answers on their own listing (itemOwnerId is themselves).
+  await run("30. owner comments on own listing -> Allow", async () => {
+    const db = testEnv.authenticatedContext("approved-user").firestore();
+    await assertSucceeds(
+      setDoc(doc(db, "listings/listing1/comments/c30"), commentData({ authorId: "approved-user" }))
+    );
+  });
+
+  // 31. Same, under a service.
+  await run("31. approved student comments on service -> Allow", async () => {
+    const db = testEnv.authenticatedContext("other-approved-user").firestore();
+    await assertSucceeds(setDoc(doc(db, "services/service1/comments/c31"), commentData()));
+  });
+
+  // 32. Pending student.
+  await run("32. pending student comments -> Deny", async () => {
+    const db = testEnv.authenticatedContext("pending-user").firestore();
+    await assertFails(
+      setDoc(doc(db, "listings/listing1/comments/c32"), commentData({ authorId: "pending-user" }))
+    );
+  });
+
+  // 33. Banned student.
+  await run("33. banned student comments -> Deny", async () => {
+    const db = testEnv.authenticatedContext("banned-user").firestore();
+    await assertFails(
+      setDoc(doc(db, "listings/listing1/comments/c33"), commentData({ authorId: "banned-user" }))
+    );
+  });
+
+  // 34. Posting as someone else.
+  await run("34. authorId spoofed -> Deny", async () => {
+    const db = testEnv.authenticatedContext("other-approved-user").firestore();
+    await assertFails(
+      setDoc(doc(db, "listings/listing1/comments/c34"), commentData({ authorId: "approved-user" }))
+    );
+  });
+
+  // 35. Forging itemOwnerId to claim delete rights over the thread.
+  await run("35. itemOwnerId forged to self -> Deny", async () => {
+    const db = testEnv.authenticatedContext("other-approved-user").firestore();
+    await assertFails(
+      setDoc(doc(db, "listings/listing1/comments/c35"), commentData({ itemOwnerId: "other-approved-user" }))
+    );
+  });
+
+  // 36. Empty text.
+  await run("36. empty text -> Deny", async () => {
+    const db = testEnv.authenticatedContext("other-approved-user").firestore();
+    await assertFails(setDoc(doc(db, "listings/listing1/comments/c36"), commentData({ text: "" })));
+  });
+
+  // 37. 501 characters (limit is 500).
+  await run("37. text over 500 characters -> Deny", async () => {
+    const db = testEnv.authenticatedContext("other-approved-user").firestore();
+    await assertFails(
+      setDoc(doc(db, "listings/listing1/comments/c37"), commentData({ text: "a".repeat(501) }))
+    );
+  });
+
+  // 37b. Exactly 500 is fine.
+  await run("38. text of exactly 500 characters -> Allow", async () => {
+    const db = testEnv.authenticatedContext("other-approved-user").firestore();
+    await assertSucceeds(
+      setDoc(doc(db, "listings/listing1/comments/c38"), commentData({ text: "a".repeat(500) }))
+    );
+  });
+
+  // 39. An extra, unexpected field.
+  await run("39. extra field on comment -> Deny", async () => {
+    const db = testEnv.authenticatedContext("other-approved-user").firestore();
+    await assertFails(
+      setDoc(doc(db, "listings/listing1/comments/c39"), commentData({ isPinned: true }))
+    );
+  });
+
+  // 40. Client-chosen timestamp instead of the server's.
+  await run("40. client-set createdAt -> Deny", async () => {
+    const db = testEnv.authenticatedContext("other-approved-user").firestore();
+    await assertFails(
+      setDoc(doc(db, "listings/listing1/comments/c40"), commentData({ createdAt: new Date("2020-01-01") }))
+    );
+  });
+
+  // 41. Parent listing doesn't exist.
+  await run("41. comment on non-existent listing -> Deny", async () => {
+    const db = testEnv.authenticatedContext("other-approved-user").firestore();
+    await assertFails(setDoc(doc(db, "listings/no-such-listing/comments/c41"), commentData()));
+  });
+
+  // 42. Parent listing was removed.
+  await run("42. comment on removed listing -> Deny", async () => {
+    const db = testEnv.authenticatedContext("other-approved-user").firestore();
+    await assertFails(setDoc(doc(db, "listings/listing-removed/comments/c42"), commentData()));
+  });
+
+  // 43. Parent service was removed.
+  await run("43. comment on removed service -> Deny", async () => {
+    const db = testEnv.authenticatedContext("other-approved-user").firestore();
+    await assertFails(setDoc(doc(db, "services/service-removed/comments/c43"), commentData()));
+  });
+
+  // 44. Comments are never edited in place — not even by their author.
+  await run("44. author edits own comment -> Deny", async () => {
+    const db = testEnv.authenticatedContext("other-approved-user").firestore();
+    await assertFails(updateDoc(doc(db, "listings/listing1/comments/del-update"), { text: "edited" }));
+  });
+
+  // 45. Author deletes their own comment.
+  await run("45. author deletes own comment -> Allow", async () => {
+    const db = testEnv.authenticatedContext("other-approved-user").firestore();
+    await assertSucceeds(deleteDoc(doc(db, "listings/listing1/comments/del-author")));
+  });
+
+  // 46. The listing's owner removes someone else's comment.
+  await run("46. listing owner deletes others' comment -> Allow", async () => {
+    const db = testEnv.authenticatedContext("approved-user").firestore();
+    await assertSucceeds(deleteDoc(doc(db, "listings/listing1/comments/del-owner")));
+  });
+
+  // 47. The service's provider removes someone else's comment.
+  await run("47. service provider deletes others' comment -> Allow", async () => {
+    const db = testEnv.authenticatedContext("approved-user").firestore();
+    await assertSucceeds(deleteDoc(doc(db, "services/service1/comments/del-provider")));
+  });
+
+  // 48. A bystander who is neither author nor owner.
+  await run("48. stranger deletes others' comment -> Deny", async () => {
+    const db = testEnv.authenticatedContext("pending-user").firestore();
+    await assertFails(deleteDoc(doc(db, "listings/listing1/comments/del-stranger")));
+  });
+
+  // 49. Admin moderation.
+  await run("49. admin deletes any comment -> Allow", async () => {
+    const db = testEnv.authenticatedContext("admin-user").firestore();
+    await assertSucceeds(deleteDoc(doc(db, "listings/listing1/comments/del-admin")));
+  });
+
+  // 50. Any signed-in user can read a thread (the page's own list query).
+  await run("50. signed-in user lists a comment thread -> Allow", async () => {
+    const db = testEnv.authenticatedContext("pending-user").firestore();
+    await assertSucceeds(getDocs(collection(db, "listings/listing1/comments")));
+  });
+
+  // 51. Signed-out visitors can't read comments.
+  await run("51. signed-out user reads comments -> Deny", async () => {
+    const db = testEnv.unauthenticatedContext().firestore();
+    await assertFails(getDocs(collection(db, "listings/listing1/comments")));
   });
 
   await testEnv.cleanup();
