@@ -23,3 +23,6 @@ dist-ssr
 *.sln
 *.sw?
 src/assets/bg-video.mp4
+
+# Firebase deploy cache
+.firebase/
