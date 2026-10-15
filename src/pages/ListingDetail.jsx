@@ -17,6 +17,7 @@ import { auth, db } from "../services/firebase";
 import dashboardBg from "../assets/dashboard-bg.jpg";
 import { categoryLabel } from "../constants/categories";
 import { saveIdFor, toggleSave } from "../utils/saves";
+import Comments from "../components/Comments";
 
 const inter = { fontFamily: "'Inter', sans-serif" };
 
@@ -194,11 +195,11 @@ export default function ListingDetail() {
       </Link>
 
       <div
-        className="grid grid-cols-1 gap-5 transition-all duration-700 md:grid-cols-2"
+        className="grid grid-cols-1 gap-5 transition-all duration-700 md:grid-cols-2 md:grid-rows-[auto_1fr]"
         style={{ opacity: show ? 1 : 0, transform: show ? "translateY(0)" : "translateY(16px)" }}
       >
         {/* ── Photo gallery ── */}
-        <div>
+        <div className="md:col-start-1 md:row-start-1">
           <div className={`${card} aspect-square`}>
             {photos.length ? (
               <img src={photos[activePhoto]} alt={listing.title} className="h-full w-full object-cover" />
@@ -257,7 +258,7 @@ export default function ListingDetail() {
         </div>
 
         {/* ── Details ── */}
-        <div className="flex flex-col gap-4">
+        <div className="flex flex-col gap-4 md:col-start-2 md:row-span-2 md:row-start-1">
           <div className={`${card} p-5 sm:p-6`}>
             <div className="pointer-events-none absolute inset-x-0 top-0 h-[3px]" style={{ background: "linear-gradient(90deg,#8f774b,#c9963f)" }} />
             <span className="inline-block rounded-full bg-[#c9963f]/15 px-2.5 py-1 text-[11px] font-medium text-[#d6bd97]">
@@ -308,8 +309,8 @@ export default function ListingDetail() {
               <div className="mt-4 flex items-start gap-2.5 rounded-xl border border-white/10 bg-white/[0.03] px-3.5 py-3">
                 <HiOutlineInformationCircle className="mt-0.5 h-4 w-4 shrink-0 text-[#d6bd97]/70" />
                 <p className="text-xs leading-relaxed text-[#f4e6cd]/55">
-                  CampusHub doesn't have in-app messaging yet. Find {seller?.name ? seller.name.split(" ")[0] : "the seller"}{" "}
-                  on campus to ask questions and arrange pickup.
+                  CampusHub doesn't have private messages yet. Ask in the comments, or find{" "}
+                  {seller?.name ? seller.name.split(" ")[0] : "the seller"} on campus to arrange pickup.
                 </p>
               </div>
             )}
@@ -320,6 +321,14 @@ export default function ListingDetail() {
             <p className="whitespace-pre-wrap text-sm leading-relaxed text-[#f4e6cd]/80">{listing.description}</p>
           </div>
         </div>
+
+        <Comments
+          itemType="listing"
+          itemId={id}
+          ownerId={listing.sellerId}
+          uid={uid}
+          closed={listing.status === "removed"}
+        />
       </div>
 
       {popup.show && (
