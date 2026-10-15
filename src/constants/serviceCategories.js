@@ -12,3 +12,10 @@ export const SERVICE_CATEGORIES = [
 ];
 
 export const serviceCategoryLabel = (key) => SERVICE_CATEGORIES.find((c) => c.key === key)?.label || key;
+
+// The leading emoji of a category's label ("📚 Tutoring & Academic" -> "📚").
+// Used as the big placeholder art on service cards that have no photo.
+export const serviceCategoryEmoji = (key) => {
+  const label = SERVICE_CATEGORIES.find((c) => c.key === key)?.label || "";
+  return label.split(" ")[0] || "✨";
+};
