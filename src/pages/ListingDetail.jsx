@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { onAuthStateChanged } from "firebase/auth";
-import { doc, getDoc } from "firebase/firestore";
+import { doc, getDoc, increment, updateDoc } from "firebase/firestore";
 import {
   HiOutlineArrowLeft,
   HiOutlineChevronLeft,
@@ -12,6 +12,9 @@ import {
   HiOutlineInformationCircle,
   HiOutlineExclamationTriangle,
   HiOutlineShoppingBag,
+  HiOutlineCheckCircle,
+  HiOutlineArrowPath,
+  HiOutlineTrash,
 } from "react-icons/hi2";
 import { auth, db } from "../services/firebase";
 import dashboardBg from "../assets/dashboard-bg.jpg";
@@ -59,6 +62,8 @@ export default function ListingDetail() {
   const [seller, setSeller] = useState(null);
   const [saved, setSaved] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [changingStatus, setChangingStatus] = useState(false);
+  const [confirmRemove, setConfirmRemove] = useState(false);
   const [activePhoto, setActivePhoto] = useState(0);
 
   const [loading, setLoading] = useState(true);
@@ -86,6 +91,11 @@ export default function ListingDetail() {
           return;
         }
         const data = { id: listingSnap.id, ...listingSnap.data() };
+        // A removed listing is gone for everyone except its seller.
+        if (data.status === "removed" && data.sellerId !== user.uid) {
+          setNotFound(true);
+          return;
+        }
         setListing(data);
 
         const [sellerSnap, saveSnap] = await Promise.all([
@@ -120,6 +130,42 @@ export default function ListingDetail() {
       toast("Couldn't update saved — try again.", false);
     } finally {
       setSaving(false);
+    }
+  };
+
+  // Seller-only: moves the listing between active / sold / removed.
+  // firestore.rules lets the seller make exactly these transitions.
+  const changeStatus = async (next) => {
+    if (changingStatus) return;
+    setChangingStatus(true);
+    try {
+      await updateDoc(doc(db, "listings", id), { status: next });
+      setListing((l) => ({ ...l, status: next }));
+      setConfirmRemove(false);
+      if (next === "removed") {
+        // Keep the Dashboard "Listings" tile in step. Listings posted before
+        // the counter existed (pre-6b) were never counted, so never let it go
+        // below zero. The removal already succeeded, so a failure here is
+        // only logged.
+        try {
+          const userSnap = await getDoc(doc(db, "users", uid));
+          if ((userSnap.data()?.listingsCount || 0) > 0) {
+            await updateDoc(doc(db, "users", uid), { listingsCount: increment(-1) });
+          }
+        } catch (countErr) {
+          console.error("Couldn't update listingsCount:", countErr);
+        }
+        toast("Listing removed.");
+      } else if (next === "sold") {
+        toast("Marked as sold — hidden from the Marketplace.");
+      } else {
+        toast("Listing is live again.");
+      }
+    } catch (err) {
+      console.error("Status change failed:", err);
+      toast("Couldn't update the listing — try again.", false);
+    } finally {
+      setChangingStatus(false);
     }
   };
 
@@ -315,6 +361,84 @@ export default function ListingDetail() {
               </div>
             )}
           </div>
+
+          {/* ── Seller-only controls ── */}
+          {isOwnListing && listing.status !== "removed" && (
+            <div className={`${card} p-5 sm:p-6`}>
+              <h2 className="mb-1 text-sm font-semibold uppercase tracking-wide text-[#f4e6cd]/45" style={inter}>Manage your listing</h2>
+              <p className="mb-4 text-xs leading-relaxed text-[#f4e6cd]/50">
+                {listing.status === "sold"
+                  ? "Sold: hidden from the Marketplace. If the deal fell through, make it available again."
+                  : "Live: visible to everyone on the Marketplace. Mark it sold once it's gone."}
+              </p>
+
+              {confirmRemove ? (
+                <div className="rounded-xl border border-red-400/25 bg-red-500/[0.06] p-3.5">
+                  <p className="text-sm text-[#f4e6cd]/80">Remove this listing? It will disappear for everyone.</p>
+                  <div className="mt-3 flex gap-2.5">
+                    <button
+                      type="button"
+                      onClick={() => changeStatus("removed")}
+                      disabled={changingStatus}
+                      className="inline-flex h-10 items-center gap-2 rounded-xl bg-gradient-to-r from-red-500 to-rose-500 px-4 text-sm font-semibold text-white transition-all hover:-translate-y-0.5 disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      <HiOutlineTrash className="h-4 w-4" /> Yes, remove
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setConfirmRemove(false)}
+                      disabled={changingStatus}
+                      className="inline-flex h-10 items-center rounded-xl border border-white/10 bg-white/[0.05] px-4 text-sm font-semibold text-white/75 transition-all hover:bg-white/[0.09] hover:text-white"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <div className="flex flex-wrap gap-2.5">
+                  {listing.status === "sold" ? (
+                    <button
+                      type="button"
+                      onClick={() => changeStatus("active")}
+                      disabled={changingStatus}
+                      className="inline-flex h-10 items-center gap-2 rounded-xl bg-gradient-to-r from-[#8f774b] to-[#c9963f] px-4 text-sm font-semibold text-[#f4e6cd] transition-all hover:-translate-y-0.5 disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      <HiOutlineArrowPath className="h-4 w-4" /> Mark available again
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => changeStatus("sold")}
+                      disabled={changingStatus}
+                      className="inline-flex h-10 items-center gap-2 rounded-xl bg-gradient-to-r from-[#8f774b] to-[#c9963f] px-4 text-sm font-semibold text-[#f4e6cd] transition-all hover:-translate-y-0.5 disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      <HiOutlineCheckCircle className="h-4 w-4" /> Mark sold
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => setConfirmRemove(true)}
+                    disabled={changingStatus}
+                    className="inline-flex h-10 items-center gap-2 rounded-xl border border-red-400/25 bg-red-500/[0.06] px-4 text-sm font-semibold text-red-200/90 transition-all hover:bg-red-500/[0.12] disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    <HiOutlineTrash className="h-4 w-4" /> Remove
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
+
+          {isOwnListing && listing.status === "removed" && (
+            <div className={`${card} p-5 sm:p-6`}>
+              <p className="text-sm text-[#f4e6cd]/70">This listing was removed and is no longer visible to anyone else.</p>
+              <Link
+                to="/marketplace"
+                className="mt-4 inline-flex h-10 items-center rounded-xl border border-white/10 bg-white/[0.05] px-4 text-sm font-semibold text-white/75 transition-all hover:bg-white/[0.09] hover:text-white"
+              >
+                Back to Marketplace
+              </Link>
+            </div>
+          )}
 
           <div className={`${card} flex-1 p-5 sm:p-6`}>
             <h2 className="mb-2 text-sm font-semibold uppercase tracking-wide text-[#f4e6cd]/45" style={inter}>Description</h2>
