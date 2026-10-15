@@ -20,6 +20,7 @@ import dashboardBg from "../assets/dashboard-bg.jpg";
 import { serviceCategoryEmoji, serviceCategoryLabel } from "../constants/serviceCategories";
 import { saveIdFor, toggleSave } from "../utils/saves";
 import Comments from "../components/Comments";
+import ReportButton from "../components/ReportButton";
 
 const inter = { fontFamily: "'Inter', sans-serif" };
 
@@ -357,6 +358,17 @@ export default function ServiceDetail() {
                   campus to agree on details.
                 </p>
               </div>
+            )}
+
+            {!isOwn && service.status !== "removed" && (
+              <ReportButton
+                uid={uid}
+                targetType="service"
+                itemType="service"
+                itemId={id}
+                targetOwnerId={service.providerId}
+                onReported={(msg) => toast(msg)}
+              />
             )}
           </div>
 

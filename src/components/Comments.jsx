@@ -17,6 +17,7 @@ import {
 } from "react-icons/hi2";
 import { db } from "../services/firebase";
 import { ensurePublicProfile } from "../utils/publicProfile";
+import ReportButton from "./ReportButton";
 
 const inter = { fontFamily: "'Inter', sans-serif" };
 
@@ -65,8 +66,16 @@ export default function Comments({ itemType, itemId, ownerId, uid, closed = fals
 
   const [confirmId, setConfirmId] = useState(null);
   const [deletingId, setDeletingId] = useState(null);
+  const [notice, setNotice] = useState("");
 
   const listRef = useRef(null);
+
+  // Short-lived message after reporting a comment.
+  useEffect(() => {
+    if (!notice) return;
+    const t = setTimeout(() => setNotice(""), 3500);
+    return () => clearTimeout(t);
+  }, [notice]);
   const scrollToEnd = useRef(false);
 
   const load = useCallback(async () => {
@@ -229,12 +238,26 @@ export default function Comments({ itemType, itemId, ownerId, uid, closed = fals
                       </span>
                     )}
                     <span className="text-[11px] text-[#f4e6cd]/35">{timeAgo(c.createdAt?.toDate?.())}</span>
+                    {c.authorId !== uid && confirmId !== c.id && (
+                      <span className="ml-auto flex">
+                        <ReportButton
+                          uid={uid}
+                          targetType="comment"
+                          itemType={itemType}
+                          itemId={itemId}
+                          commentId={c.id}
+                          targetOwnerId={c.authorId}
+                          variant="icon"
+                          onReported={(msg) => setNotice(msg)}
+                        />
+                      </span>
+                    )}
                     {canDelete && confirmId !== c.id && (
                       <button
                         type="button"
                         onClick={() => setConfirmId(c.id)}
                         aria-label="Delete comment"
-                        className="ml-auto rounded-lg p-1 text-[#f4e6cd]/30 transition-colors hover:bg-white/[0.06] hover:text-red-300"
+                        className={`${c.authorId !== uid ? "" : "ml-auto "}rounded-lg p-1 text-[#f4e6cd]/30 transition-colors hover:bg-white/[0.06] hover:text-red-300`}
                       >
                         <HiOutlineTrash className="h-4 w-4" />
                       </button>
@@ -269,6 +292,12 @@ export default function Comments({ itemType, itemId, ownerId, uid, closed = fals
             );
           })}
         </ul>
+      )}
+
+      {notice && (
+        <p role="status" className="mt-3 rounded-xl border border-[#c9963f]/25 bg-[#c9963f]/10 px-3.5 py-2 text-xs text-[#d6bd97]">
+          {notice}
+        </p>
       )}
 
       {/* ── Compose ── */}

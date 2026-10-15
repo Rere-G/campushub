@@ -21,6 +21,7 @@ import dashboardBg from "../assets/dashboard-bg.jpg";
 import { categoryLabel } from "../constants/categories";
 import { saveIdFor, toggleSave } from "../utils/saves";
 import Comments from "../components/Comments";
+import ReportButton from "../components/ReportButton";
 
 const inter = { fontFamily: "'Inter', sans-serif" };
 
@@ -359,6 +360,17 @@ export default function ListingDetail() {
                   {seller?.name ? seller.name.split(" ")[0] : "the seller"} on campus to arrange pickup.
                 </p>
               </div>
+            )}
+
+            {!isOwnListing && listing.status !== "removed" && (
+              <ReportButton
+                uid={uid}
+                targetType="listing"
+                itemType="listing"
+                itemId={id}
+                targetOwnerId={listing.sellerId}
+                onReported={(msg) => toast(msg)}
+              />
             )}
           </div>
 
