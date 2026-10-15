@@ -7,6 +7,7 @@ import dashboardBg from "../assets/dashboard-bg.jpg";
 import { CATEGORIES } from "../constants/categories";
 import CategorySelect from "../components/CategorySelect";
 import PhotoSlot from "../components/PhotoSlot";
+import { ensurePublicProfile } from "../utils/publicProfile";
 
 const inter = { fontFamily: "'Inter', sans-serif" };
 
@@ -150,6 +151,13 @@ export default function CreateListing() {
         await updateDoc(doc(db, "users", user.uid), { listingsCount: increment(1) });
       } catch (countErr) {
         console.error("Couldn't update listingsCount:", countErr);
+      }
+      // Make sure our name/photo mirror exists so this post shows who we are.
+      // The post already succeeded, so a failure here is only logged.
+      try {
+        await ensurePublicProfile(user.uid, user.email || "");
+      } catch (mirrorErr) {
+        console.error("Couldn't sync publicProfiles:", mirrorErr);
       }
       setPosted(true);
     } catch (err) {
