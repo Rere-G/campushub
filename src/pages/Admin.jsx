@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { onAuthStateChanged } from "firebase/auth";
 import { doc, getDoc, getDocs, collection, updateDoc } from "firebase/firestore";
@@ -16,6 +16,7 @@ import {
 } from "react-icons/hi2";
 import { auth, db } from "../services/firebase";
 import dashboardBg from "../assets/dashboard-bg.jpg";
+import ReportsPanel from "../components/ReportsPanel";
 
 /* ─── Reduced-motion (module-level, read once) ─────────────────── */
 const prefersReduced =
@@ -69,14 +70,20 @@ function StatTile({ label, value, icon: Icon, color, show, delay = 0 }) {
   );
 }
 
-/* ─── Section card (active / locked) ───────────────────────────── */
-function SectionCard({ icon: Icon, title, desc, locked }) {
+/* ─── Section card (clickable / locked) ────────────────────────── */
+// A clickable card switches the panel below it. A locked card is a
+// placeholder for a section that isn't built yet.
+function SectionCard({ icon: Icon, title, desc, locked, lockedNote = "Coming soon", active = false, onClick, badge = 0 }) {
+  const Tag = locked ? "div" : "button";
   return (
-    <div
-      className={`relative overflow-hidden rounded-2xl border px-5 py-4 ${
+    <Tag
+      {...(locked ? {} : { type: "button", onClick, "aria-pressed": active })}
+      className={`relative overflow-hidden rounded-2xl border px-5 py-4 text-left ${
         locked
           ? "border-white/10 bg-white/[0.03] opacity-60"
-          : "border-white/10 bg-white/[0.05] transition-all duration-200 hover:-translate-y-0.5 hover:border-[#c9963f]/50"
+          : active
+          ? "border-[#c9963f]/60 bg-[#c9963f]/[0.08] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#c9963f]/60"
+          : "border-white/10 bg-white/[0.05] transition-all duration-200 hover:-translate-y-0.5 hover:border-[#c9963f]/50 focus:outline-none focus-visible:ring-2 focus-visible:ring-[#c9963f]/60"
       }`}
     >
       <div
@@ -92,6 +99,11 @@ function SectionCard({ icon: Icon, title, desc, locked }) {
           <HiOutlineLockClosed className="h-4 w-4" />
         </span>
       )}
+      {!locked && badge > 0 && (
+        <span className="absolute right-4 top-4 rounded-full bg-[#f87171] px-2 py-0.5 text-[11px] font-bold text-white">
+          {badge}
+        </span>
+      )}
       <div className="flex h-9 w-9 items-center justify-center rounded-xl border border-white/10 bg-white/[0.06]">
         <Icon className="h-5 w-5 text-[#d6bd97]" />
       </div>
@@ -101,10 +113,10 @@ function SectionCard({ icon: Icon, title, desc, locked }) {
       <p className="mt-0.5 text-xs text-[#f4e6cd]/50">{desc}</p>
       {locked && (
         <span className="mt-2 inline-block rounded-full bg-[#c9963f]/15 px-2.5 py-1 text-[10px] uppercase tracking-[0.08em] text-[#d6bd97]">
-          Unlocks with Marketplace
+          {lockedNote}
         </span>
       )}
-    </div>
+    </Tag>
   );
 }
 
@@ -147,6 +159,8 @@ export default function Admin() {
   const [tab, setTab] = useState("pending");
   const [busyId, setBusyId] = useState(null);
   const [confirmState, setConfirmState] = useState(null); // { user, kind: 'ban' | 'revoke' }
+  const [section, setSection] = useState("users"); // "users" | "reports"
+  const [openReports, setOpenReports] = useState(0);
   const [popup, setPopup] = useState({ show: false, text: "", ok: true });
 
   const toast = (text, ok = true) => {
@@ -167,6 +181,14 @@ export default function Admin() {
         setUid(current.uid);
         const all = await getDocs(collection(db, "users"));
         setUsers(all.docs.map((d) => ({ id: d.id, ...d.data() })));
+        // Open-report count for the Reports card badge. Separate try, so a
+        // failure here never blocks the Users panel.
+        try {
+          const reps = await getDocs(collection(db, "reports"));
+          setOpenReports(reps.docs.filter((d) => d.data().status === "open").length);
+        } catch (repErr) {
+          console.error("Report count failed:", repErr);
+        }
       } catch (err) {
         console.error("Admin load failed:", err);
         setLoadErr(true);
@@ -216,6 +238,12 @@ export default function Admin() {
       setBusyId(null);
     }
   };
+
+  // Called by ReportsPanel after it bans someone, so the Users list and the
+  // stat tiles stay in step without a reload.
+  const markBanned = useCallback((userId) => {
+    setUsers((list) => list.map((u) => (u.id === userId ? { ...u, banned: true } : u)));
+  }, []);
 
   const approve = (u) => applyChange(u, { approved: true }, `Approved ${displayName(u)}`);
   const unban = (u) => applyChange(u, { banned: false }, `Unbanned ${displayName(u)}`);
@@ -288,9 +316,22 @@ export default function Admin() {
             show ? "translate-y-0 opacity-100" : "translate-y-6 opacity-0"
           }`}
         >
-          <SectionCard icon={HiOutlineUsers} title="Users & approvals" desc="Approve, revoke, and ban students." />
-          <SectionCard icon={HiOutlineTag} title="Posts" desc="Review and remove listings." locked />
-          <SectionCard icon={HiOutlineFlag} title="Reports" desc="Handle flagged posts and users." locked />
+          <SectionCard
+            icon={HiOutlineUsers}
+            title="Users & approvals"
+            desc="Approve, revoke, and ban students."
+            active={section === "users"}
+            onClick={() => setSection("users")}
+          />
+          <SectionCard icon={HiOutlineTag} title="Posts" desc="Review and remove listings and services." locked />
+          <SectionCard
+            icon={HiOutlineFlag}
+            title="Reports"
+            desc="Handle reported listings, services and comments."
+            active={section === "reports"}
+            onClick={() => setSection("reports")}
+            badge={openReports}
+          />
         </div>
 
         {/* ── Users panel ── */}
@@ -300,6 +341,15 @@ export default function Admin() {
           }`}
         >
           <div className="pointer-events-none absolute inset-x-0 top-0 h-px" style={{ background: "linear-gradient(90deg,transparent,rgba(201,150,63,0.45),transparent)" }} />
+          {section === "reports" && uid ? (
+            <ReportsPanel
+              adminUid={uid}
+              users={users}
+              onUserBanned={markBanned}
+              onOpenCountChange={setOpenReports}
+              toast={toast}
+            />
+          ) : (
           <div className="relative z-10">
             <h2 className="mb-4 text-xl font-bold text-white" style={{ fontFamily: "'Inter', sans-serif" }}>Users</h2>
 
@@ -442,6 +492,7 @@ export default function Admin() {
               </div>
             )}
           </div>
+          )}
         </section>
 
         <footer className="mt-6 flex items-center justify-between rounded-2xl border border-white/[0.05] bg-white/[0.02] px-6 py-3.5">
