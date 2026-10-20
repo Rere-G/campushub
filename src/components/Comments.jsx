@@ -106,6 +106,15 @@ export default function Comments({ itemType, itemId, ownerId, uid, closed = fals
     load();
   }, [load]);
 
+  // Opened from the Dashboard Activity feed (…/#comments): once the thread
+  // has loaded, bring this section into view.
+  const jumped = useRef(false);
+  useEffect(() => {
+    if (loading || jumped.current || window.location.hash !== "#comments") return;
+    jumped.current = true;
+    document.getElementById("comments")?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }, [loading]);
+
   // After posting, scroll the thread to the newest comment.
   useEffect(() => {
     if (scrollToEnd.current && listRef.current) {
@@ -167,7 +176,7 @@ export default function Comments({ itemType, itemId, ownerId, uid, closed = fals
   };
 
   return (
-    <section className={`${card} p-5 sm:p-6 md:col-start-1 md:row-start-2`} aria-label="Questions and comments">
+    <section id="comments" className={`${card} scroll-mt-6 p-5 sm:p-6 md:col-start-1 md:row-start-2`} aria-label="Questions and comments">
       <div className="pointer-events-none absolute inset-x-0 top-0 h-[3px]" style={{ background: "linear-gradient(90deg,#8f774b,#c9963f)" }} />
       <div className="mb-4 flex items-center gap-2.5">
         <HiOutlineChatBubbleLeftRight className="h-5 w-5 text-[#d6bd97]" />

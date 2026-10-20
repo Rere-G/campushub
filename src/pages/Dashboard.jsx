@@ -14,10 +14,14 @@ import {
   HiOutlineArrowLeftOnRectangle,
   HiOutlineCheckBadge,
   HiOutlineShieldCheck,
+  HiOutlineCheck,
+  HiOutlineChatBubbleLeftRight,
+  HiOutlineExclamationTriangle,
 } from "react-icons/hi2";
 import { auth, db } from "../services/firebase";
 import mascotGif from "../assets/TS.gif";
 import dashboardBg from "../assets/dashboard-bg.jpg";
+import { markActivityRead, timeAgo, useActivity } from "../utils/activity";
 
 /* ─── Animated counter hook ────────────────────────────────────── */
 function useCountUp(target, duration = 1100, active = false) {
@@ -79,6 +83,9 @@ export default function Dashboard() {
   const [profile, setProfile] = useState(null);
   const [loggingOut, setLoggingOut] = useState(false);
   const [loadingProfile, setLoadingProfile] = useState(true);
+  // Comments newer than this are "unread". null = never marked, so all unread.
+  const [seenAt, setSeenAt] = useState(null);
+  const [marking, setMarking] = useState(false);
 
   useEffect(() => {
     const timer = setTimeout(() => setShow(true), 120);
@@ -87,7 +94,9 @@ export default function Dashboard() {
       setUser(currentUser);
       try {
         const snap = await getDoc(doc(db, "users", currentUser.uid));
-        setProfile(snap.exists() ? snap.data() : null);
+        const data = snap.exists() ? snap.data() : null;
+        setProfile(data);
+        setSeenAt(data?.activitySeenAt?.toDate?.() ?? null);
       } catch (err) {
         console.error("Error loading profile:", err);
         setProfile(null);
@@ -152,8 +161,23 @@ export default function Dashboard() {
     },
   ];
 
-  // No real activity source yet — empty until notifications/listings exist.
-  const recentActivity = [];
+  // Questions other students asked on my listings and services (live).
+  const { items: activity, loading: activityLoading, error: activityError } = useActivity(user?.uid);
+  const isUnread = (a) => !seenAt || (a.createdAt && a.createdAt > seenAt);
+  const unreadCount = activity.filter(isUnread).length;
+
+  const handleMarkRead = async () => {
+    if (!user || marking) return;
+    setMarking(true);
+    try {
+      await markActivityRead(user.uid);
+      setSeenAt(new Date());
+    } catch (err) {
+      console.error("Couldn't mark activity as read:", err);
+    } finally {
+      setMarking(false);
+    }
+  };
 
   const stats = [
     { label: "Listings", value: profile?.listingsCount ?? 0, icon: HiOutlineShoppingBag },
@@ -255,9 +279,21 @@ export default function Dashboard() {
                   </span>
                 )}
               </div>
-              <h1 className="mt-2 text-3xl font-bold tracking-tight text-white sm:text-4xl" style={{ fontFamily: "'Inter', sans-serif" }}>
-                Dashboard
-              </h1>
+              <div className="mt-2 flex flex-wrap items-center gap-3">
+                <h1 className="text-3xl font-bold tracking-tight text-white sm:text-4xl" style={{ fontFamily: "'Inter', sans-serif" }}>
+                  Dashboard
+                </h1>
+                {unreadCount > 0 && (
+                  <a
+                    href="#activity"
+                    className="inline-flex h-7 items-center gap-1.5 rounded-full px-3 text-xs font-bold text-[#f4e6cd] transition-all hover:-translate-y-0.5"
+                    style={{ border: "1px solid rgba(201,150,63,0.45)", background: "rgba(201,150,63,0.18)" }}
+                  >
+                    <span className="h-1.5 w-1.5 rounded-full bg-[#c9963f] shadow-[0_0_6px_#c9963f]" />
+                    {unreadCount} new
+                  </a>
+                )}
+              </div>
             </div>
 
             <div className="flex flex-wrap items-center gap-2.5">
@@ -521,53 +557,118 @@ export default function Dashboard() {
 
           {/* Activity feed */}
           <div
-            className={`${card} p-7 transition-all duration-700 delay-200 ${
+            id="activity"
+            className={`${card} scroll-mt-6 p-7 transition-all duration-700 delay-200 ${
               show ? "translate-y-0 opacity-100" : "translate-y-10 opacity-0"
             }`}
           >
             <TopLine via="rgba(214,189,151,0.45)" />
 
             <div className="relative z-10">
-              <div className="mb-5 flex items-center justify-between">
+              <div className="mb-5 flex items-center justify-between gap-3">
                 <div>
                   <p className="text-[11px] uppercase tracking-[0.38em] text-white/35">
                     Notifications
                   </p>
                   <h3 className="mt-2 text-2xl font-bold text-white" style={{ fontFamily: "'Inter', sans-serif" }}>Activity</h3>
                 </div>
-                <div className="flex h-9 w-9 items-center justify-center rounded-xl border border-white/[0.08] bg-white/[0.05]">
-                  <HiOutlineBellAlert className="h-4 w-4 text-white/50" />
+                <div className="relative flex h-9 w-9 items-center justify-center rounded-xl border border-white/[0.08] bg-white/[0.05]">
+                  <HiOutlineBellAlert className={`h-4 w-4 ${unreadCount > 0 ? "text-[#d6bd97]" : "text-white/50"}`} />
+                  {unreadCount > 0 && (
+                    <span
+                      className="absolute -right-1.5 -top-1.5 flex h-5 min-w-5 items-center justify-center rounded-full bg-[#c9963f] px-1 text-[10px] font-bold text-[#1a120a] shadow-[0_0_10px_rgba(201,150,63,0.6)]"
+                      aria-label={`${unreadCount} unread`}
+                    >
+                      {unreadCount > 9 ? "9+" : unreadCount}
+                    </span>
+                  )}
                 </div>
               </div>
 
-              {recentActivity.length > 0 ? (
+              {unreadCount > 0 && (
+                <div className="mb-3 flex justify-end">
+                  <button
+                    type="button"
+                    onClick={handleMarkRead}
+                    disabled={marking}
+                    className="inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1 text-xs font-semibold text-[#d6bd97] transition-all hover:bg-[#c9963f]/15 disabled:opacity-50"
+                    style={{ border: "1px solid rgba(201,150,63,0.30)" }}
+                  >
+                    <HiOutlineCheck className="h-3.5 w-3.5" />
+                    {marking ? "Marking…" : "Mark all as read"}
+                  </button>
+                </div>
+              )}
+
+              {activityLoading ? (
                 <div className="space-y-2.5">
-                  {recentActivity.map((item, i) => (
-                    <div
-                      key={i}
-                      className="flex items-start gap-3.5 rounded-[18px] border border-white/[0.06] bg-white/[0.03] px-4 py-4 transition-all duration-300 hover:bg-white/[0.06] hover:border-white/[0.10]"
-                      style={{
-                        opacity: show ? 1 : 0,
-                        transform: show ? "translateX(0)" : "translateX(-10px)",
-                        transition: `opacity 0.5s ease ${350 + i * 90}ms, transform 0.5s ease ${350 + i * 90}ms, background 0.25s, border-color 0.25s`,
-                      }}
-                    >
-                      <div
-                        className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-xl"
-                        style={{ border: `1px solid ${item.color}28`, background: `${item.color}12` }}
-                      >
-                        <div
-                          className="h-2 w-2 rounded-full"
-                          style={{ background: item.color, boxShadow: `0 0 6px ${item.color}` }}
-                        />
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <p className="text-sm leading-6 text-white/60">{item.text}</p>
-                        <p className="mt-0.5 text-[11px] text-white/28">{item.time}</p>
+                  {[0, 1, 2].map((i) => (
+                    <div key={i} className="flex gap-3 rounded-[18px] border border-white/[0.06] bg-white/[0.03] px-4 py-4">
+                      <div className="h-8 w-8 shrink-0 animate-pulse rounded-full bg-white/[0.08]" />
+                      <div className="flex-1 space-y-2">
+                        <div className="h-3 w-3/4 animate-pulse rounded bg-white/[0.08]" />
+                        <div className="h-3 w-1/2 animate-pulse rounded bg-white/[0.05]" />
                       </div>
                     </div>
                   ))}
                 </div>
+              ) : activityError ? (
+                <div className="flex flex-col items-center rounded-[18px] border border-white/[0.08] bg-white/[0.03] px-4 py-8 text-center">
+                  <HiOutlineExclamationTriangle className="h-5 w-5 text-red-300/70" />
+                  <p className="mt-2 text-sm text-white/60">Couldn't load your activity.</p>
+                  <p className="mt-1 text-xs text-white/35">Refresh the page to try again.</p>
+                </div>
+              ) : activity.length > 0 ? (
+                <ul className="-mr-2 max-h-[420px] space-y-2.5 overflow-y-auto pr-2">
+                  {activity.map((item, i) => {
+                    const unread = isUnread(item);
+                    return (
+                      <li
+                        key={`${item.itemId}-${item.id}`}
+                        style={{
+                          opacity: show ? 1 : 0,
+                          transform: show ? "translateX(0)" : "translateX(-10px)",
+                          transition: `opacity 0.5s ease ${350 + Math.min(i, 6) * 70}ms, transform 0.5s ease ${350 + Math.min(i, 6) * 70}ms`,
+                        }}
+                      >
+                        <Link
+                          to={item.to}
+                          className={`flex items-start gap-3 rounded-[18px] border px-4 py-3.5 transition-all duration-300 hover:bg-white/[0.07] hover:border-white/[0.12] ${
+                            unread ? "border-[#c9963f]/25 bg-[#c9963f]/[0.06]" : "border-white/[0.06] bg-white/[0.03]"
+                          }`}
+                        >
+                          <div className="relative mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center overflow-hidden rounded-full border border-white/10 bg-white/[0.06] text-xs font-bold text-[#f4e6cd]">
+                            {item.authorPhoto ? (
+                              <img src={item.authorPhoto} alt="" className="h-full w-full object-cover" />
+                            ) : (
+                              item.authorName.slice(0, 1).toUpperCase()
+                            )}
+                          </div>
+                          <div className="min-w-0 flex-1">
+                            <p className="text-sm leading-5 text-white/70">
+                              <span className="font-semibold text-white">{item.authorName}</span>{" "}
+                              asked on{" "}
+                              <span className="font-semibold text-[#d6bd97]">{item.itemTitle}</span>
+                            </p>
+                            <p className="mt-1 line-clamp-2 break-words text-[13px] leading-5 text-white/45">
+                              “{item.text}”
+                            </p>
+                            <p className="mt-1 flex items-center gap-1.5 text-[11px] text-white/30">
+                              <HiOutlineChatBubbleLeftRight className="h-3 w-3" />
+                              {item.itemType === "listing" ? "Listing" : "Service"} · {timeAgo(item.createdAt)}
+                            </p>
+                          </div>
+                          {unread && (
+                            <span
+                              className="mt-2 h-2 w-2 shrink-0 rounded-full bg-[#c9963f] shadow-[0_0_6px_#c9963f]"
+                              aria-label="Unread"
+                            />
+                          )}
+                        </Link>
+                      </li>
+                    );
+                  })}
+                </ul>
               ) : (
                 <div
                   className="flex flex-col items-center justify-center rounded-[18px] border border-dashed px-4 py-10 text-center"
@@ -580,7 +681,7 @@ export default function Dashboard() {
                     No activity yet
                   </p>
                   <p className="mt-1 max-w-[240px] text-sm leading-6 text-white/35">
-                    Your notifications, listing views, and messages will show up here as you use CampusHub.
+                    Questions on your listings and services will show up here.
                   </p>
                 </div>
               )}
