@@ -223,7 +223,11 @@ service cloud.firestore {
     // for access (the id format alone already proves ownership), it's there
     // so a saved doc always says what kind of thing it's pointing at.
     match /saves/{saveId} {
-            allow read: if request.auth != null && saveId.split('_')[0] == request.auth.uid;
+      // get: look up ONE save by id ("is this saved?"), even before it exists.
+      allow get: if request.auth != null && saveId.split('_')[0] == request.auth.uid;
+      // list: the My Saved page / Saved count. Firestore only allows a query it
+      // can prove returns your own saves, so the query must filter uid == you.
+      allow list: if request.auth != null && resource.data.uid == request.auth.uid;
 
       allow create: if request.auth != null
         && request.resource.data.uid == request.auth.uid

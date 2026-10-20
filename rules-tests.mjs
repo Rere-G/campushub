@@ -809,6 +809,31 @@ async function main() {
     );
   });
 
+  // ---- My Saved page (listing your own saves) ----
+  // By now other-approved-user has saves from tests 19 and 20.
+
+  // 79. Owner lists their own saves (uid filter = themselves).
+  await run("79. owner lists own saves -> Allow", async () => {
+    const db = testEnv.authenticatedContext("other-approved-user").firestore();
+    await assertSucceeds(
+      getDocs(query(collection(db, "saves"), where("uid", "==", "other-approved-user")))
+    );
+  });
+
+  // 80. Listing every save with no uid filter.
+  await run("80. list all saves without uid filter -> Deny", async () => {
+    const db = testEnv.authenticatedContext("other-approved-user").firestore();
+    await assertFails(getDocs(collection(db, "saves")));
+  });
+
+  // 81. Listing someone else's saves.
+  await run("81. list another user's saves -> Deny", async () => {
+    const db = testEnv.authenticatedContext("approved-user").firestore();
+    await assertFails(
+      getDocs(query(collection(db, "saves"), where("uid", "==", "other-approved-user")))
+    );
+  });
+
   await testEnv.cleanup();
 
   const failed = results.filter((r) => !r.pass);
