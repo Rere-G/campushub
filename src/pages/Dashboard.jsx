@@ -206,8 +206,8 @@ export default function Dashboard() {
 
   const useStored = counts?.fallback === true;
   const stats = [
-    { label: "Listings", value: useStored ? profile?.listingsCount ?? 0 : counts?.listings ?? 0, icon: HiOutlineShoppingBag, to: "/marketplace" },
-    { label: "Services", value: useStored ? profile?.servicesCount ?? 0 : counts?.services ?? 0, icon: HiOutlineWrenchScrewdriver, to: "/services" },
+    { label: "Listings", value: useStored ? profile?.listingsCount ?? 0 : counts?.listings ?? 0, icon: HiOutlineShoppingBag, to: "/my-listings?type=listing" },
+    { label: "Services", value: useStored ? profile?.servicesCount ?? 0 : counts?.services ?? 0, icon: HiOutlineWrenchScrewdriver, to: "/my-listings?type=service" },
     { label: "Saved", value: useStored ? profile?.savedCount ?? 0 : counts?.saved ?? 0, icon: HiOutlineBookmark, to: "/saved" },
   ];
 

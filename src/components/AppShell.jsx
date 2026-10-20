@@ -8,6 +8,7 @@ import {
   HiOutlineChevronDoubleRight,
   HiOutlineHome,
   HiOutlinePlus,
+  HiOutlineRectangleStack,
   HiOutlineShieldCheck,
   HiOutlineShoppingBag,
   HiOutlineUserCircle,
@@ -42,7 +43,11 @@ const POST_OPTIONS = [
 export default function AppShell({ account, onLogout, loggingOut, children }) {
   const location = useLocation();
   const [collapsed, setCollapsed] = useState(readCollapsed);
-  const [postOpen, setPostOpen] = useState(false);
+  // Separate open state per Post menu: both menus are mounted (one is hidden
+  // by CSS at each width), and a shared flag let the hidden menu's
+  // "click outside" handler close the visible one before the click landed.
+  const [sidePostOpen, setSidePostOpen] = useState(false);
+  const [barPostOpen, setBarPostOpen] = useState(false);
   const [meOpen, setMeOpen] = useState(false);
 
   const data = account?.data || {};
@@ -61,22 +66,24 @@ export default function AppShell({ account, onLogout, loggingOut, children }) {
   const [menuPath, setMenuPath] = useState(location.pathname);
   if (menuPath !== location.pathname) {
     setMenuPath(location.pathname);
-    setPostOpen(false);
+    setSidePostOpen(false);
+    setBarPostOpen(false);
     setMeOpen(false);
   }
 
   // Escape closes any open menu.
   useEffect(() => {
-    if (!postOpen && !meOpen) return;
+    if (!sidePostOpen && !barPostOpen && !meOpen) return;
     const onKey = (e) => {
       if (e.key === "Escape") {
-        setPostOpen(false);
+        setSidePostOpen(false);
+        setBarPostOpen(false);
         setMeOpen(false);
       }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [postOpen, meOpen]);
+  }, [sidePostOpen, barPostOpen, meOpen]);
 
   const toggleCollapsed = () => {
     setCollapsed((c) => {
@@ -99,8 +106,8 @@ export default function AppShell({ account, onLogout, loggingOut, children }) {
         unread={unread}
         name={name}
         photo={photo}
-        postOpen={postOpen}
-        setPostOpen={setPostOpen}
+        postOpen={sidePostOpen}
+        setPostOpen={setSidePostOpen}
         onLogout={onLogout}
         loggingOut={loggingOut}
       />
@@ -112,8 +119,8 @@ export default function AppShell({ account, onLogout, loggingOut, children }) {
 
       <BottomBar
         unread={unread}
-        postOpen={postOpen}
-        setPostOpen={setPostOpen}
+        postOpen={barPostOpen}
+        setPostOpen={setBarPostOpen}
         meOpen={meOpen}
         setMeOpen={setMeOpen}
       />
@@ -176,7 +183,7 @@ function PostMenu({ onClose, className = "" }) {
       ref={ref}
       role="menu"
       aria-label="What do you want to post?"
-      className={`z-50 w-64 rounded-2xl border border-white/10 bg-[#15110b] p-2 shadow-[0_20px_50px_rgba(0,0,0,0.6)] ${className}`}
+      className={`z-50 w-[220px] rounded-2xl border border-white/10 bg-[#15110b] p-2 shadow-[0_20px_50px_rgba(0,0,0,0.6)] ${className}`}
     >
       {POST_OPTIONS.map((o) => {
         const Icon = o.icon;
@@ -211,11 +218,14 @@ function Sidebar({ collapsed, onToggle, isAdmin, unread, name, photo, postOpen, 
     { to: "/marketplace", label: "Marketplace", icon: HiOutlineShoppingBag },
     { to: "/services", label: "Services", icon: HiOutlineWrenchScrewdriver },
   ];
-  const mine = [{ to: "/saved", label: "Saved", icon: HiOutlineBookmark }];
+  const mine = [
+    { to: "/my-listings", label: "My listings", icon: HiOutlineRectangleStack },
+    { to: "/saved", label: "Saved", icon: HiOutlineBookmark },
+  ];
 
   return (
     <aside
-      className={`sticky top-0 hidden h-screen shrink-0 flex-col border-r border-white/[0.07] bg-[#0a0805]/95 transition-[width] duration-300 md:flex ${width}`}
+      className={`sticky top-0 z-30 hidden h-screen shrink-0 flex-col border-r border-white/[0.07] bg-[#0a0805]/95 transition-[width] duration-300 md:flex ${width}`}
       aria-label="Main navigation"
     >
       {/* Brand + collapse toggle */}
@@ -484,6 +494,9 @@ function MeSheet({ name, photo, isAdmin, onClose, onLogout, loggingOut }) {
         </div>
 
         <div className="flex flex-col gap-0.5">
+          <button type="button" className={row} onClick={() => go("/my-listings")}>
+            <HiOutlineRectangleStack className="h-5 w-5 text-[#d6bd97]" /> My listings
+          </button>
           <button type="button" className={row} onClick={() => go("/saved")}>
             <HiOutlineBookmark className="h-5 w-5 text-[#d6bd97]" /> Saved
           </button>

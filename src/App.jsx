@@ -12,6 +12,7 @@ import Profile from "./pages/Profile";
 import Admin from "./pages/Admin";
 import CreateListing from "./pages/CreateListing";
 import Saved from "./pages/Saved";
+import MyListings from "./pages/MyListings";
 import Gate from "./components/Gate";
 
 export default function App() {
@@ -34,6 +35,7 @@ export default function App() {
         <Route path="/services/new" element={<CreateService />} />
         <Route path="/services/:id" element={<ServiceDetail />} />
         <Route path="/saved" element={<Saved />} />
+        <Route path="/my-listings" element={<MyListings />} />
         <Route path="/Profile" element={<Profile />} />
         <Route path="/admin" element={<Admin />} />
       </Route>
