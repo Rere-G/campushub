@@ -46,6 +46,25 @@ service cloud.firestore {
         || (d.targetType == 'comment' && reportId == request.auth.uid + '_' + d.itemId + '_' + d.commentId);
     }
 
+    // Moderation lock (stage 14). An admin removal sets removedByAdmin: true,
+    // and the owner can't change that post at all until an admin restores it.
+    // Owners can never set or clear the flag. Posts without the field act as
+    // removedByAdmin == false.
+    function notLockedByAdmin() {
+      return resource.data.get('removedByAdmin', false) != true;
+    }
+    function lockFlagUnchanged() {
+      return request.resource.data.get('removedByAdmin', false)
+          == resource.data.get('removedByAdmin', false);
+    }
+    // Admin writes: the flag (if sent) is a bool, and can only be true on a
+    // removed post. Writing only `status` (the pre-14 admin app) still works.
+    function adminLockFlagOk() {
+      return request.resource.data.get('removedByAdmin', false) is bool
+        && (request.resource.data.get('removedByAdmin', false) == false
+            || request.resource.data.status == 'removed');
+    }
+
     match /users/{uid} {
       // You read your own doc; an admin may read any user's doc (to review them).
       allow read: if request.auth != null && (request.auth.uid == uid || isAdmin());
@@ -90,15 +109,19 @@ service cloud.firestore {
         // Owner: may edit their own listing's content, and move it between
         // active / sold / removed themselves (their own item's lifecycle).
         // sellerId can never change.
+        // Not while an admin's removal is in force, and never the lock flag.
         (request.auth.uid == resource.data.sellerId
           && request.resource.data.sellerId == resource.data.sellerId
-          && request.resource.data.status in ['active', 'sold', 'removed'])
+          && request.resource.data.status in ['active', 'sold', 'removed']
+          && notLockedByAdmin()
+          && lockFlagUnchanged())
         ||
         // Admin: may change ONLY status, and only to active/removed
         // (moderation — never 'sold', that's the seller's own call).
         (isAdmin()
-          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status'])
-          && request.resource.data.status in ['active', 'removed'])
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'removedByAdmin'])
+          && request.resource.data.status in ['active', 'removed']
+          && adminLockFlagOk())
       );
 
       // Soft-delete only — never a real delete.
@@ -151,15 +174,19 @@ service cloud.firestore {
         // active / paused / removed themselves (their own listing's
         // lifecycle — "paused" stands in for "sold", since a service isn't
         // bought once the way an item is). providerId can never change.
+        // Not while an admin's removal is in force, and never the lock flag.
         (request.auth.uid == resource.data.providerId
           && request.resource.data.providerId == resource.data.providerId
-          && request.resource.data.status in ['active', 'paused', 'removed'])
+          && request.resource.data.status in ['active', 'paused', 'removed']
+          && notLockedByAdmin()
+          && lockFlagUnchanged())
         ||
         // Admin: may change ONLY status, and only to active/removed
         // (moderation — never 'paused', that's the provider's own call).
         (isAdmin()
-          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status'])
-          && request.resource.data.status in ['active', 'removed'])
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'removedByAdmin'])
+          && request.resource.data.status in ['active', 'removed']
+          && adminLockFlagOk())
       );
 
       // Soft-delete only — never a real delete.

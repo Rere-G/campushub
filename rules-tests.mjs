@@ -834,6 +834,79 @@ async function main() {
     );
   });
 
+  // ---- Moderation lock: owners can't undo an admin removal (stage 14) ----
+  await testEnv.withSecurityRulesDisabled(async (context) => {
+    const db = context.firestore();
+    await setDoc(doc(db, "listings/mod-l"), listingData({ sellerId: "approved-user" }));
+    await setDoc(doc(db, "services/mod-s"), serviceData({ providerId: "approved-user" }));
+  });
+
+  // 82. Admin removes a listing and sets the lock.
+  await run("82. admin removes listing with removedByAdmin -> Allow", async () => {
+    const db = testEnv.authenticatedContext("admin-user").firestore();
+    await assertSucceeds(updateDoc(doc(db, "listings/mod-l"), { status: "removed", removedByAdmin: true }));
+  });
+
+  // 83. Owner tries to bring the admin-removed listing back.
+  await run("83. owner restores admin-removed listing -> Deny", async () => {
+    const db = testEnv.authenticatedContext("approved-user").firestore();
+    await assertFails(updateDoc(doc(db, "listings/mod-l"), { status: "active" }));
+  });
+
+  // 84. Owner clears the lock and restores in one write.
+  await run("84. owner clears lock + restores listing -> Deny", async () => {
+    const db = testEnv.authenticatedContext("approved-user").firestore();
+    await assertFails(updateDoc(doc(db, "listings/mod-l"), { status: "active", removedByAdmin: false }));
+  });
+
+  // 85. Admin sets the lock on a post that isn't removed.
+  await run("85. admin sets removedByAdmin on an active listing -> Deny", async () => {
+    const db = testEnv.authenticatedContext("admin-user").firestore();
+    await assertFails(updateDoc(doc(db, "listings/mod-l"), { status: "active", removedByAdmin: true }));
+  });
+
+  // 86. Admin restores it and clears the lock.
+  await run("86. admin restores listing and clears lock -> Allow", async () => {
+    const db = testEnv.authenticatedContext("admin-user").firestore();
+    await assertSucceeds(updateDoc(doc(db, "listings/mod-l"), { status: "active", removedByAdmin: false }));
+  });
+
+  // 87. Owner removes their own listing (no lock involved).
+  await run("87. owner removes own listing -> Allow", async () => {
+    const db = testEnv.authenticatedContext("approved-user").firestore();
+    await assertSucceeds(updateDoc(doc(db, "listings/mod-l"), { status: "removed" }));
+  });
+
+  // 88. Owner restores their OWN removal — still allowed.
+  await run("88. owner restores own removed listing -> Allow", async () => {
+    const db = testEnv.authenticatedContext("approved-user").firestore();
+    await assertSucceeds(updateDoc(doc(db, "listings/mod-l"), { status: "active" }));
+  });
+
+  // 89. Owner locks their own listing (owners never touch the flag).
+  await run("89. owner sets removedByAdmin on own listing -> Deny", async () => {
+    const db = testEnv.authenticatedContext("approved-user").firestore();
+    await assertFails(updateDoc(doc(db, "listings/mod-l"), { status: "removed", removedByAdmin: true }));
+  });
+
+  // 90. Admin removes a service and sets the lock.
+  await run("90. admin removes service with removedByAdmin -> Allow", async () => {
+    const db = testEnv.authenticatedContext("admin-user").firestore();
+    await assertSucceeds(updateDoc(doc(db, "services/mod-s"), { status: "removed", removedByAdmin: true }));
+  });
+
+  // 91. Provider tries to resume the admin-removed service.
+  await run("91. owner restores admin-removed service -> Deny", async () => {
+    const db = testEnv.authenticatedContext("approved-user").firestore();
+    await assertFails(updateDoc(doc(db, "services/mod-s"), { status: "active" }));
+  });
+
+  // 92. Admin restores the service and clears the lock.
+  await run("92. admin restores service and clears lock -> Allow", async () => {
+    const db = testEnv.authenticatedContext("admin-user").firestore();
+    await assertSucceeds(updateDoc(doc(db, "services/mod-s"), { status: "active", removedByAdmin: false }));
+  });
+
   await testEnv.cleanup();
 
   const failed = results.filter((r) => !r.pass);
