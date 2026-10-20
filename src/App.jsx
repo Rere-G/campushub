@@ -1,4 +1,4 @@
-import { Routes, Route, Navigate } from "react-router-dom";
+import { Routes, Route, Navigate, Outlet } from "react-router-dom";
 import Landing from "./pages/Landing";
 import Marketplace from "./pages/Marketplace";
 import ListingDetail from "./pages/ListingDetail";
@@ -19,18 +19,25 @@ export default function App() {
     <Routes>
       <Route path="/" element={<Landing />} />
       <Route path="/Home" element={<Navigate to="/" replace />} />
-      <Route path="/marketplace" element={<Gate><Marketplace /></Gate>} />
-      <Route path="/marketplace/new" element={<Gate><CreateListing /></Gate>} />
-      <Route path="/marketplace/:id" element={<Gate><ListingDetail /></Gate>} />
-      <Route path="/services" element={<Gate><Services /></Gate>} />
-      <Route path="/services/new" element={<Gate><CreateService /></Gate>} />
-      <Route path="/services/:id" element={<Gate><ServiceDetail /></Gate>} />
       <Route path="/login" element={<Login />} />
       <Route path="/signup" element={<Signup />} />
-      <Route path="/saved" element={<Gate><Saved /></Gate>} />
-      <Route path="/dashboard" element={<Gate><Dashboard /></Gate>} />
-      <Route path="/Profile" element={<Gate allowUnapproved><Profile /></Gate>} />
-      <Route path="/admin" element={<Gate><Admin /></Gate>} />
+
+      {/* Every signed-in page: ONE Gate (account check) + the sidebar shell,
+          kept mounted while moving between these pages. Pending users may
+          only open /Profile (shown without the shell). */}
+      <Route element={<Gate withShell allowUnapprovedPaths={["/profile"]}><Outlet /></Gate>}>
+        <Route path="/dashboard" element={<Dashboard />} />
+        <Route path="/marketplace" element={<Marketplace />} />
+        <Route path="/marketplace/new" element={<CreateListing />} />
+        <Route path="/marketplace/:id" element={<ListingDetail />} />
+        <Route path="/services" element={<Services />} />
+        <Route path="/services/new" element={<CreateService />} />
+        <Route path="/services/:id" element={<ServiceDetail />} />
+        <Route path="/saved" element={<Saved />} />
+        <Route path="/Profile" element={<Profile />} />
+        <Route path="/admin" element={<Admin />} />
+      </Route>
+
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
   );

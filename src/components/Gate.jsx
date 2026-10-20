@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link, useLocation, useNavigate } from "react-router-dom";
 import { onAuthStateChanged, signOut } from "firebase/auth";
-import { doc, getDoc } from "firebase/firestore";
+import { doc, onSnapshot } from "firebase/firestore";
 import {
   HiOutlineClock,
   HiOutlineNoSymbol,
@@ -10,6 +10,7 @@ import {
   HiOutlineUserCircle,
 } from "react-icons/hi2";
 import { auth, db } from "../services/firebase";
+import AppShell from "./AppShell";
 
 /**
  * Gate — access-control wrapper for protected routes.
@@ -18,44 +19,61 @@ import { auth, db } from "../services/firebase";
  *   1. Not logged in            → redirect to /login
  *   2. banned === true          → render Blocked screen (no children, ever)
  *   3. role === "admin"         → bypass the approval check (still subject to #2)
- *   4. approved !== true        → render Pending screen, UNLESS allowUnapproved
- *   5. otherwise                → render children
+ *   4. approved !== true        → render Pending screen, UNLESS the current
+ *                                 path is allowed for pending users (Profile)
+ *   5. otherwise                → render children (inside the AppShell
+ *                                 sidebar when `withShell` is set)
  *
- * Pass `allowUnapproved` on the one route (Profile) that a pending
- * (not banned) user is allowed to keep using while waiting on approval.
+ * App.jsx mounts ONE Gate as a layout route around every signed-in page,
+ * so the account check and the sidebar persist while moving between pages.
+ * The users/{uid} doc is watched live: approvals, bans, profile photo and
+ * "mark all as read" show up without a reload.
+ *
+ * Props:
+ *   allowUnapproved       pending users may see children on any path
+ *   allowUnapprovedPaths  lower-case paths pending users may see (no shell)
+ *   withShell             wrap approved users' pages in <AppShell>
  */
-export default function Gate({ children, allowUnapproved = false }) {
+export default function Gate({ children, allowUnapproved = false, allowUnapprovedPaths = [], withShell = false }) {
   const navigate = useNavigate();
+  const location = useLocation();
   const [status, setStatus] = useState("loading"); // loading | ok | pending | banned | error
+  const [account, setAccount] = useState(null); // { uid, email, data }
   const [loggingOut, setLoggingOut] = useState(false);
 
   useEffect(() => {
-    const unsub = onAuthStateChanged(auth, async (user) => {
+    let unsubDoc = null;
+    const unsubAuth = onAuthStateChanged(auth, (user) => {
+      if (unsubDoc) {
+        unsubDoc();
+        unsubDoc = null;
+      }
       if (!user) {
         navigate("/login");
         return;
       }
-      try {
-        const snap = await getDoc(doc(db, "users", user.uid));
-        const data = snap.exists() ? snap.data() : {};
-        const banned = data.banned === true;
-        const approved = data.approved === true;
-        const isAdmin = data.role === "admin";
-
-        if (banned) {
-          setStatus("banned");
-        } else if (isAdmin || approved || allowUnapproved) {
-          setStatus("ok");
-        } else {
-          setStatus("pending");
+      unsubDoc = onSnapshot(
+        doc(db, "users", user.uid),
+        (snap) => {
+          // "estimate" so a just-written serverTimestamp (e.g. activitySeenAt)
+          // reads as "now" instead of null while it's pending.
+          const data = snap.exists() ? snap.data({ serverTimestamps: "estimate" }) : {};
+          setAccount({ uid: user.uid, email: user.email, data });
+          if (data.banned === true) setStatus("banned");
+          else if (data.role === "admin" || data.approved === true) setStatus("ok");
+          else setStatus("pending");
+        },
+        (err) => {
+          console.error("Gate: couldn't verify account status:", err);
+          setStatus("error");
         }
-      } catch (err) {
-        console.error("Gate: couldn't verify account status:", err);
-        setStatus("error");
-      }
+      );
     });
-    return () => unsub();
-  }, [navigate, allowUnapproved]);
+    return () => {
+      if (unsubDoc) unsubDoc();
+      unsubAuth();
+    };
+  }, [navigate]);
 
   const handleLogout = async () => {
     try {
@@ -68,10 +86,23 @@ export default function Gate({ children, allowUnapproved = false }) {
     }
   };
 
+  const pendingAllowed =
+    allowUnapproved || allowUnapprovedPaths.includes(location.pathname.toLowerCase());
+
   if (status === "loading") return <GateScreen loading />;
   if (status === "banned") return <GateScreen kind="banned" onLogout={handleLogout} loggingOut={loggingOut} />;
-  if (status === "pending") return <GateScreen kind="pending" onLogout={handleLogout} loggingOut={loggingOut} />;
   if (status === "error") return <GateScreen kind="error" onLogout={handleLogout} loggingOut={loggingOut} />;
+  if (status === "pending") {
+    if (pendingAllowed) return children;
+    return <GateScreen kind="pending" onLogout={handleLogout} loggingOut={loggingOut} />;
+  }
+  if (withShell) {
+    return (
+      <AppShell account={account} onLogout={handleLogout} loggingOut={loggingOut}>
+        {children}
+      </AppShell>
+    );
+  }
   return children;
 }
 

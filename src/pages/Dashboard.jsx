@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { onAuthStateChanged, signOut } from "firebase/auth";
+import { onAuthStateChanged } from "firebase/auth";
 import { collection, doc, getDoc, getDocs, query, where } from "firebase/firestore";
 import {
   HiOutlineShoppingBag,
@@ -11,7 +11,6 @@ import {
   HiOutlineBookmark,
   HiOutlineSparkles,
   HiOutlineBellAlert,
-  HiOutlineArrowLeftOnRectangle,
   HiOutlineCheckBadge,
   HiOutlineShieldCheck,
   HiOutlineCheck,
@@ -83,7 +82,6 @@ export default function Dashboard() {
   const [show, setShow] = useState(false);
   const [user, setUser] = useState(null);
   const [profile, setProfile] = useState(null);
-  const [loggingOut, setLoggingOut] = useState(false);
   const [loadingProfile, setLoadingProfile] = useState(true);
   // Comments newer than this are "unread". null = never marked, so all unread.
   const [seenAt, setSeenAt] = useState(null);
@@ -213,17 +211,6 @@ export default function Dashboard() {
     { label: "Saved", value: useStored ? profile?.savedCount ?? 0 : counts?.saved ?? 0, icon: HiOutlineBookmark, to: "/saved" },
   ];
 
-  const handleLogout = async () => {
-    try {
-      setLoggingOut(true);
-      await signOut(auth);
-      navigate("/login");
-    } catch (err) {
-      console.error(err);
-      setLoggingOut(false);
-    }
-  };
-
   /* ── shared card class ── */
   const card =
     "relative overflow-hidden rounded-[28px] border border-white/[0.08] bg-white/[0.04] backdrop-blur-xl shadow-[0_20px_60px_rgba(0,0,0,0.45)]";
@@ -324,41 +311,6 @@ export default function Dashboard() {
               </div>
             </div>
 
-            <div className="flex flex-wrap items-center gap-2.5">
-              {[
-                { to: "/marketplace", icon: HiOutlineShoppingBag, label: "Marketplace" },
-                { to: "/services", icon: HiOutlineWrenchScrewdriver, label: "Services" },
-                { to: "/saved", icon: HiOutlineBookmark, label: "Saved" },
-              ].map(({ to, icon: Icon, label }) => (
-                <Link
-                  key={label}
-                  to={to}
-                  className="inline-flex h-10 items-center gap-2 rounded-xl border border-white/[0.08] bg-white/[0.05] px-4 text-sm font-medium text-white/70 transition-all duration-250 hover:-translate-y-0.5 hover:bg-white/[0.09] hover:text-white hover:shadow-[0_6px_18px_rgba(0,0,0,0.3)]"
-                >
-                  <Icon className="h-4 w-4" />
-                  {label}
-                </Link>
-              ))}
-              {isAdmin && (
-                <Link
-                  to="/admin"
-                  className="inline-flex h-10 items-center gap-2 rounded-xl px-4 text-sm font-semibold text-[#d6bd97] transition-all duration-250 hover:-translate-y-0.5 hover:bg-[#c9963f]/15"
-                  style={{ border: "1px solid rgba(201,150,63,0.35)", background: "rgba(201,150,63,0.10)" }}
-                >
-                  <HiOutlineShieldCheck className="h-4 w-4" />
-                  Admin
-                </Link>
-              )}
-              <button
-                onClick={handleLogout}
-                disabled={loggingOut}
-                className="inline-flex h-10 items-center gap-2 rounded-xl px-4 text-sm font-semibold text-red-400 transition-all duration-250 hover:-translate-y-0.5 hover:bg-red-500/15 hover:shadow-[0_6px_18px_rgba(239,68,68,0.18)] active:scale-[0.97] disabled:opacity-50"
-                style={{ border: "1px solid rgba(239,68,68,0.22)", background: "rgba(239,68,68,0.08)" }}
-              >
-                <HiOutlineArrowLeftOnRectangle className="h-4 w-4" />
-                {loggingOut ? "Logging out…" : "Logout"}
-              </button>
-            </div>
           </div>
         </header>
 
