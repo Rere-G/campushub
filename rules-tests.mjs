@@ -13,7 +13,10 @@ import {
   assertSucceeds,
   assertFails,
 } from "@firebase/rules-unit-testing";
-import { doc, setDoc, updateDoc, deleteDoc, getDoc, getDocs, collection, serverTimestamp } from "firebase/firestore";
+import {
+  doc, setDoc, updateDoc, deleteDoc, getDoc, getDocs, collection, serverTimestamp,
+  collectionGroup, query, where, orderBy, limit,
+} from "firebase/firestore";
 
 const PROJECT_ID = "demo-campushub-rules-test"; // fake id, local emulator only
 
@@ -772,6 +775,38 @@ async function main() {
   await run("76. admin deletes a report -> Deny", async () => {
     const db = testEnv.authenticatedContext("admin-user").firestore();
     await assertFails(deleteDoc(doc(db, "reports/third-user_listing1")));
+  });
+
+  // ---- Activity feed (collection-group query over all comments) ----
+
+  // 77. Owner pulls the questions on their own listings and services.
+  await run("77. owner collection-group query on own comments -> Allow", async () => {
+    const db = testEnv.authenticatedContext("approved-user").firestore();
+    await assertSucceeds(
+      getDocs(
+        query(
+          collectionGroup(db, "comments"),
+          where("itemOwnerId", "==", "approved-user"),
+          orderBy("createdAt", "desc"),
+          limit(20)
+        )
+      )
+    );
+  });
+
+  // 78. Signed-out visitor runs the same query.
+  await run("78. signed-out collection-group query -> Deny", async () => {
+    const db = testEnv.unauthenticatedContext().firestore();
+    await assertFails(
+      getDocs(
+        query(
+          collectionGroup(db, "comments"),
+          where("itemOwnerId", "==", "approved-user"),
+          orderBy("createdAt", "desc"),
+          limit(20)
+        )
+      )
+    );
   });
 
   await testEnv.cleanup();

@@ -194,6 +194,14 @@ service cloud.firestore {
       }
     }
 
+    // Activity feed: lets the Dashboard run ONE collection-group query over
+    // every comments subcollection (listings and services) for questions on
+    // the signed-in user's items. Read-only, and no wider than the nested
+    // comment rules above, which already let any signed-in user read comments.
+    match /{path=**}/comments/{commentId} {
+      allow read: if request.auth != null;
+    }
+
     // A small public-safe mirror of {name, photo} per user, kept fresh by the
     // user themselves whenever they save their profile. Lets listings show a
     // seller's current name/photo without opening up reads on /users (which
