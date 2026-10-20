@@ -138,14 +138,15 @@ export default function ReportsPanel({ adminUid, users, onUserBanned, onOpenCoun
     if (report.targetType === "comment") {
       await deleteDoc(doc(db, targetPath(report)));
     } else {
-      await updateDoc(doc(db, itemPath(report)), { status: "removed" });
+      // Locked: the owner can't restore an admin removal (stage 14).
+      await updateDoc(doc(db, itemPath(report)), { status: "removed", removedByAdmin: true });
     }
     setTargets((t) => ({
       ...t,
       [targetPath(report)]:
         report.targetType === "comment"
           ? { exists: false, data: null }
-          : { exists: true, data: { ...(t[targetPath(report)]?.data || {}), status: "removed" } },
+          : { exists: true, data: { ...(t[targetPath(report)]?.data || {}), status: "removed", removedByAdmin: true } },
     }));
   };
 
@@ -187,7 +188,9 @@ export default function ReportsPanel({ adminUid, users, onUserBanned, onOpenCoun
       await updateDoc(doc(db, "users", report.targetOwnerId), { banned: true });
       onUserBanned?.(report.targetOwnerId);
       const t = targets[targetPath(report)];
-      const canRemove = t?.exists && !(report.targetType !== "comment" && t.data?.status === "removed");
+      // Skip only if it's already removed AND locked; an owner's own removal still gets locked.
+      const canRemove =
+        t?.exists && !(report.targetType !== "comment" && t.data?.status === "removed" && t.data?.removedByAdmin);
       if (alsoRemove && canRemove) await removeContent(report);
       await resolve(report, "actioned", "banned");
       toast(`Banned ${nameOf(usersById[report.targetOwnerId])}.`);

@@ -440,7 +440,16 @@ export default function ServiceDetail() {
 
           {isOwn && service.status === "removed" && (
             <div className={`${card} p-5 sm:p-6`}>
-              <p className="text-sm text-[#f4e6cd]/70">This service was removed and is no longer visible to anyone else.</p>
+              {service.removedByAdmin ? (
+                <>
+                  <p className="text-sm font-semibold text-[#f4e6cd]/85">Removed by a moderator</p>
+                  <p className="mt-1 text-sm text-[#f4e6cd]/60">
+                    It's hidden from everyone and can't be restored. If you think this is a mistake, contact a campus admin.
+                  </p>
+                </>
+              ) : (
+                <p className="text-sm text-[#f4e6cd]/70">This service was removed and is no longer visible to anyone else.</p>
+              )}
               <Link
                 to="/services"
                 className="mt-4 inline-flex h-10 items-center rounded-xl border border-white/10 bg-white/[0.05] px-4 text-sm font-semibold text-white/75 transition-all hover:bg-white/[0.09] hover:text-white"

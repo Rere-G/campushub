@@ -8,6 +8,7 @@ import {
   HiOutlineTrash,
   HiOutlineArrowUturnLeft,
   HiOutlineTag,
+  HiOutlineLockClosed,
 } from "react-icons/hi2";
 import { db } from "../services/firebase";
 import { categoryLabel } from "../constants/categories";
@@ -123,10 +124,24 @@ export default function PostsPanel({ users, toast }) {
     if (busyKey) return;
     setBusyKey(key);
     try {
-      await updateDoc(doc(db, post.kind === "listing" ? "listings" : "services", post.id), { status: next });
-      setPosts((list) => list.map((p) => (p.kind === post.kind && p.id === post.id ? { ...p, status: next } : p)));
+      // removedByAdmin locks the post so its owner can't restore it
+      // (firestore.rules, stage 14). Restore clears the lock again.
+      const removedByAdmin = next === "removed";
+      await updateDoc(doc(db, post.kind === "listing" ? "listings" : "services", post.id), {
+        status: next,
+        removedByAdmin,
+      });
+      setPosts((list) =>
+        list.map((p) => (p.kind === post.kind && p.id === post.id ? { ...p, status: next, removedByAdmin } : p))
+      );
       setConfirmKey(null);
-      toast(next === "removed" ? `Removed “${post.title}”.` : `Restored “${post.title}”.`);
+      toast(
+        next === "removed"
+          ? post.status === "removed"
+            ? `Locked “${post.title}”. The owner can't restore it.`
+            : `Removed “${post.title}”.`
+          : `Restored “${post.title}”.`
+      );
     } catch (err) {
       console.error("Status change failed:", err);
       toast("Couldn't update — please try again.", false);
@@ -204,7 +219,12 @@ export default function PostsPanel({ users, toast }) {
           {visible.map((p) => {
             const key = `${p.kind}/${p.id}`;
             const busy = busyKey === key;
-            const pill = STATUS_PILL[p.status] || STATUS_PILL.active;
+            const basePill = STATUS_PILL[p.status] || STATUS_PILL.active;
+            // Who removed it: an unlocked removal is the owner's own (or from before stage 14).
+            const pill =
+              p.status === "removed"
+                ? { ...basePill, text: p.removedByAdmin ? "Removed by admin" : "Removed by owner" }
+                : basePill;
             const photo = p.photos && p.photos[0];
             const owner = usersById[p.ownerId];
             const link = p.kind === "listing" ? `/marketplace/${p.id}` : `/services/${p.id}`;
@@ -258,13 +278,25 @@ export default function PostsPanel({ users, toast }) {
                     Open <HiOutlineArrowTopRightOnSquare className="h-3.5 w-3.5" />
                   </Link>
                   {p.status === "removed" ? (
-                    <button
-                      onClick={() => setStatus(p, "active")}
-                      disabled={busy}
-                      className="inline-flex items-center gap-1.5 rounded-xl border border-[#86efac]/40 px-3.5 py-2 text-[12.5px] font-semibold text-[#86efac] transition-all hover:bg-[#86efac]/10 disabled:opacity-40"
-                    >
-                      <HiOutlineArrowUturnLeft className="h-4 w-4" /> Restore
-                    </button>
+                    <>
+                      {!p.removedByAdmin && (
+                        <button
+                          onClick={() => setStatus(p, "removed")}
+                          disabled={busy}
+                          title="Keep it removed: the owner won't be able to restore it"
+                          className="inline-flex items-center gap-1.5 rounded-xl border border-[#d6bd97]/35 px-3.5 py-2 text-[12.5px] font-semibold text-[#d6bd97] transition-all hover:bg-[#c9963f]/10 disabled:opacity-40"
+                        >
+                          <HiOutlineLockClosed className="h-4 w-4" /> Lock
+                        </button>
+                      )}
+                      <button
+                        onClick={() => setStatus(p, "active")}
+                        disabled={busy}
+                        className="inline-flex items-center gap-1.5 rounded-xl border border-[#86efac]/40 px-3.5 py-2 text-[12.5px] font-semibold text-[#86efac] transition-all hover:bg-[#86efac]/10 disabled:opacity-40"
+                      >
+                        <HiOutlineArrowUturnLeft className="h-4 w-4" /> Restore
+                      </button>
+                    </>
                   ) : confirmKey === key ? (
                     <>
                       <button

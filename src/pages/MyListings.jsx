@@ -96,6 +96,7 @@ export default function MyListings() {
             title: x.title || "Untitled",
             price: x.price,
             status: x.status || "active",
+            removedByAdmin: x.removedByAdmin === true,
             photo: (x.photos && x.photos[0]) || "",
             category: x.category,
             createdAt: x.createdAt?.toDate?.() ?? null,
@@ -402,7 +403,9 @@ function PostRow({ post, index, show, busy, confirming, onAsk, onCancel, onChang
       {/* Actions */}
       <div className="flex shrink-0 flex-wrap items-center gap-2 sm:justify-end">
         {removed ? (
-          <span className="text-xs text-white/35">Removed. It's hidden from everyone.</span>
+          <span className="text-xs text-white/35">
+            {post.removedByAdmin ? "Removed by a moderator. It can't be restored." : "Removed. It's hidden from everyone."}
+          </span>
         ) : confirming ? (
           <>
             <span className="text-xs text-white/60">Remove for everyone?</span>
