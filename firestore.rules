@@ -65,6 +65,28 @@ service cloud.firestore {
             || request.resource.data.status == 'removed');
     }
 
+    // Notification shapes (stage 14c). Each type allows exactly its own fields.
+    function notifTitleOk(d) {
+      return d.itemType in ['listing', 'service']
+        && d.itemId is string
+        && d.itemTitle is string
+        && d.itemTitle.size() <= 200;
+    }
+    function notifShapeOk(d) {
+      return (d.type == 'account_approved'
+               && d.keys().hasOnly(['uid', 'type', 'createdAt']))
+        || (d.type == 'post_removed'
+               && d.keys().hasAll(['itemType', 'itemId', 'itemTitle', 'reason'])
+               && d.keys().hasOnly(['uid', 'type', 'itemType', 'itemId', 'itemTitle', 'reason', 'createdAt'])
+               && notifTitleOk(d)
+               && d.reason in ['scam', 'prohibited', 'offensive', 'spam', 'other'])
+        || (d.type == 'report_handled'
+               && d.keys().hasAll(['itemType', 'itemId', 'itemTitle', 'outcome'])
+               && d.keys().hasOnly(['uid', 'type', 'itemType', 'itemId', 'itemTitle', 'outcome', 'createdAt'])
+               && notifTitleOk(d)
+               && d.outcome in ['removed', 'dismissed', 'banned']);
+    }
+
     match /users/{uid} {
       // You read your own doc; an admin may read any user's doc (to review them).
       allow read: if request.auth != null && (request.auth.uid == uid || isAdmin());
@@ -305,6 +327,21 @@ service cloud.firestore {
 
       // Reports are a record — never deleted.
       allow delete: if false;
+    }
+
+    // System notifications for one student (stage 14c): "a moderator removed
+    // your post", "your account was approved", "your report was handled".
+    // Written only by admins; each student can list only their own; never
+    // edited or deleted (Mark all as read uses users/{uid}.activitySeenAt).
+    match /notifications/{notifId} {
+      allow get, list: if request.auth != null && resource.data.uid == request.auth.uid;
+
+      allow create: if isAdmin()
+        && request.resource.data.uid is string
+        && request.resource.data.createdAt == request.time
+        && notifShapeOk(request.resource.data);
+
+      allow update, delete: if false;
     }
   }
 }

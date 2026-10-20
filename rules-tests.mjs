@@ -907,6 +907,104 @@ async function main() {
     await assertSucceeds(updateDoc(doc(db, "services/mod-s"), { status: "active", removedByAdmin: false }));
   });
 
+  // ---- Notifications (stage 14c) ----
+  const notifRemoved = (overrides = {}) => ({
+    uid: "approved-user",
+    type: "post_removed",
+    itemType: "listing",
+    itemId: "listing1",
+    itemTitle: "x",
+    reason: "spam",
+    createdAt: serverTimestamp(),
+    ...overrides,
+  });
+  await testEnv.withSecurityRulesDisabled(async (context) => {
+    await setDoc(doc(context.firestore(), "notifications/seed-n1"), {
+      uid: "approved-user", type: "account_approved", createdAt: new Date(),
+    });
+  });
+
+  // 93. Admin tells a student their listing was removed.
+  await run("93. admin creates post_removed notification -> Allow", async () => {
+    const db = testEnv.authenticatedContext("admin-user").firestore();
+    await assertSucceeds(setDoc(doc(db, "notifications/n93"), notifRemoved()));
+  });
+
+  // 94. A student writes a notification (e.g. to spoof a 'removed' message).
+  await run("94. student creates a notification -> Deny", async () => {
+    const db = testEnv.authenticatedContext("other-approved-user").firestore();
+    await assertFails(setDoc(doc(db, "notifications/n94"), notifRemoved()));
+  });
+
+  // 95. Admin adds a field outside the shape.
+  await run("95. notification with an extra field -> Deny", async () => {
+    const db = testEnv.authenticatedContext("admin-user").firestore();
+    await assertFails(setDoc(doc(db, "notifications/n95"), notifRemoved({ message: "hi" })));
+  });
+
+  // 96. Admin backdates createdAt instead of using the server time.
+  await run("96. notification with client createdAt -> Deny", async () => {
+    const db = testEnv.authenticatedContext("admin-user").firestore();
+    await assertFails(setDoc(doc(db, "notifications/n96"), notifRemoved({ createdAt: new Date(2020, 0, 1) })));
+  });
+
+  // 97. post_removed with a reason that isn't on the list.
+  await run("97. post_removed with an unknown reason -> Deny", async () => {
+    const db = testEnv.authenticatedContext("admin-user").firestore();
+    await assertFails(setDoc(doc(db, "notifications/n97"), notifRemoved({ reason: "because" })));
+  });
+
+  // 98. report_handled with an unknown outcome.
+  await run("98. report_handled with an unknown outcome -> Deny", async () => {
+    const db = testEnv.authenticatedContext("admin-user").firestore();
+    await assertFails(
+      setDoc(doc(db, "notifications/n98"), {
+        uid: "third-user", type: "report_handled", itemType: "listing", itemId: "listing1",
+        itemTitle: "x", outcome: "ignored", createdAt: serverTimestamp(),
+      })
+    );
+  });
+
+  // 99. account_approved carrying extra item fields.
+  await run("99. account_approved with item fields -> Deny", async () => {
+    const db = testEnv.authenticatedContext("admin-user").firestore();
+    await assertFails(
+      setDoc(doc(db, "notifications/n99"), {
+        uid: "approved-user", type: "account_approved", itemId: "listing1", createdAt: serverTimestamp(),
+      })
+    );
+  });
+
+  // 100. Student lists their own notifications.
+  await run("100. student lists own notifications -> Allow", async () => {
+    const db = testEnv.authenticatedContext("approved-user").firestore();
+    await assertSucceeds(getDocs(query(collection(db, "notifications"), where("uid", "==", "approved-user"))));
+  });
+
+  // 101. Student lists someone else's.
+  await run("101. student lists another user's notifications -> Deny", async () => {
+    const db = testEnv.authenticatedContext("other-approved-user").firestore();
+    await assertFails(getDocs(query(collection(db, "notifications"), where("uid", "==", "approved-user"))));
+  });
+
+  // 102. Listing every notification with no uid filter.
+  await run("102. list all notifications without uid filter -> Deny", async () => {
+    const db = testEnv.authenticatedContext("approved-user").firestore();
+    await assertFails(getDocs(collection(db, "notifications")));
+  });
+
+  // 103. Owner edits their notification (read-only for everyone).
+  await run("103. owner updates own notification -> Deny", async () => {
+    const db = testEnv.authenticatedContext("approved-user").firestore();
+    await assertFails(updateDoc(doc(db, "notifications/seed-n1"), { type: "post_removed" }));
+  });
+
+  // 104. Owner deletes their notification.
+  await run("104. owner deletes own notification -> Deny", async () => {
+    const db = testEnv.authenticatedContext("approved-user").firestore();
+    await assertFails(deleteDoc(doc(db, "notifications/seed-n1")));
+  });
+
   await testEnv.cleanup();
 
   const failed = results.filter((r) => !r.pass);
