@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { onAuthStateChanged, signOut } from "firebase/auth";
-import { doc, getDoc } from "firebase/firestore";
+import { collection, doc, getDoc, getDocs, query, where } from "firebase/firestore";
 import {
   HiOutlineShoppingBag,
   HiOutlineWrenchScrewdriver,
@@ -42,12 +42,14 @@ function useCountUp(target, duration = 1100, active = false) {
 }
 
 /* ─── Individual stat card ──────────────────────────────────────── */
-function StatCard({ label, value, icon: Icon, show, delay = 0 }) {
+function StatCard({ label, value, icon: Icon, to, loading, show, delay = 0 }) {
   const num = parseInt(value, 10) || 0;
-  const count = useCountUp(num, 1000, show);
+  const count = useCountUp(num, 1000, show && !loading);
   return (
-    <div
-      className="rounded-2xl border border-white/10 bg-white/[0.04] px-3 py-4 text-center transition-all duration-500 hover:-translate-y-1.5 hover:border-white/20 hover:bg-white/[0.08] hover:shadow-[0_14px_28px_rgba(0,0,0,0.3)]"
+    <Link
+      to={to}
+      aria-label={`${label}: ${loading ? "loading" : num}`}
+      className="block rounded-2xl border border-white/10 bg-white/[0.04] px-3 py-4 text-center transition-all duration-500 hover:-translate-y-1.5 hover:border-[#c9963f]/40 hover:bg-white/[0.08] hover:shadow-[0_14px_28px_rgba(0,0,0,0.3)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#c9963f]/60"
       style={{
         opacity: show ? 1 : 0,
         transform: show ? "translateY(0)" : "translateY(10px)",
@@ -60,10 +62,10 @@ function StatCard({ label, value, icon: Icon, show, delay = 0 }) {
         </div>
       </div>
       <p className="font-mono text-[28px] font-bold tabular-nums text-white leading-none">
-        {String(count).padStart(2, "0")}
+        {loading ? <span className="text-white/25">--</span> : String(count).padStart(2, "0")}
       </p>
       <p className="mt-1.5 text-[10px] uppercase tracking-[0.18em] text-white/35">{label}</p>
-    </div>
+    </Link>
   );
 }
 
@@ -86,6 +88,8 @@ export default function Dashboard() {
   // Comments newer than this are "unread". null = never marked, so all unread.
   const [seenAt, setSeenAt] = useState(null);
   const [marking, setMarking] = useState(false);
+  // Real counts from the actual documents (not the stored counters, which drift).
+  const [counts, setCounts] = useState(null); // { listings, services, saved } | null while loading
 
   useEffect(() => {
     const timer = setTimeout(() => setShow(true), 120);
@@ -106,6 +110,29 @@ export default function Dashboard() {
     });
     return () => { clearTimeout(timer); unsubscribe(); };
   }, [navigate]);
+
+  // Count my listings (active + sold), services (active + paused) and saves.
+  useEffect(() => {
+    if (!user) return;
+    let alive = true;
+    const uid = user.uid;
+    Promise.all([
+      getDocs(query(collection(db, "listings"), where("sellerId", "==", uid))),
+      getDocs(query(collection(db, "services"), where("providerId", "==", uid))),
+      getDocs(query(collection(db, "saves"), where("uid", "==", uid))),
+    ])
+      .then(([l, sv, sa]) => {
+        if (!alive) return;
+        const notRemoved = (snap) => snap.docs.filter((d) => d.data().status !== "removed").length;
+        setCounts({ listings: notRemoved(l), services: notRemoved(sv), saved: sa.size });
+      })
+      .catch((err) => {
+        console.error("Couldn't count your posts:", err);
+        // Fall back to the stored counters so the card still shows something.
+        if (alive) setCounts({ fallback: true });
+      });
+    return () => { alive = false; };
+  }, [user]);
 
   const username = profile?.username?.trim() || user?.email?.split("@")[0] || "Student";
   const isApproved = profile?.approved === true;
@@ -179,10 +206,11 @@ export default function Dashboard() {
     }
   };
 
+  const useStored = counts?.fallback === true;
   const stats = [
-    { label: "Listings", value: profile?.listingsCount ?? 0, icon: HiOutlineShoppingBag },
-    { label: "Services", value: profile?.servicesCount ?? 0, icon: HiOutlineWrenchScrewdriver },
-    { label: "Saved", value: profile?.savedCount ?? 0, icon: HiOutlineBookmark },
+    { label: "Listings", value: useStored ? profile?.listingsCount ?? 0 : counts?.listings ?? 0, icon: HiOutlineShoppingBag, to: "/marketplace" },
+    { label: "Services", value: useStored ? profile?.servicesCount ?? 0 : counts?.services ?? 0, icon: HiOutlineWrenchScrewdriver, to: "/services" },
+    { label: "Saved", value: useStored ? profile?.savedCount ?? 0 : counts?.saved ?? 0, icon: HiOutlineBookmark, to: "/saved" },
   ];
 
   const handleLogout = async () => {
@@ -300,6 +328,7 @@ export default function Dashboard() {
               {[
                 { to: "/marketplace", icon: HiOutlineShoppingBag, label: "Marketplace" },
                 { to: "/services", icon: HiOutlineWrenchScrewdriver, label: "Services" },
+                { to: "/saved", icon: HiOutlineBookmark, label: "Saved" },
               ].map(({ to, icon: Icon, label }) => (
                 <Link
                   key={label}
@@ -446,7 +475,7 @@ export default function Dashboard() {
               {/* Stats */}
               <div className="mt-6 grid grid-cols-3 gap-2">
                 {stats.map((item, i) => (
-                  <StatCard key={item.label} {...item} show={show} delay={300 + i * 80} />
+                  <StatCard key={item.label} {...item} loading={counts === null} show={show} delay={300 + i * 80} />
                 ))}
               </div>
 

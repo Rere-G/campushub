@@ -11,6 +11,7 @@ import Dashboard from "./pages/Dashboard";
 import Profile from "./pages/Profile";
 import Admin from "./pages/Admin";
 import CreateListing from "./pages/CreateListing";
+import Saved from "./pages/Saved";
 import Gate from "./components/Gate";
 
 export default function App() {
@@ -26,6 +27,7 @@ export default function App() {
       <Route path="/services/:id" element={<Gate><ServiceDetail /></Gate>} />
       <Route path="/login" element={<Login />} />
       <Route path="/signup" element={<Signup />} />
+      <Route path="/saved" element={<Gate><Saved /></Gate>} />
       <Route path="/dashboard" element={<Gate><Dashboard /></Gate>} />
       <Route path="/Profile" element={<Gate allowUnapproved><Profile /></Gate>} />
       <Route path="/admin" element={<Gate><Admin /></Gate>} />
