@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import {
+  collection,
   collectionGroup,
   doc,
   getDoc,
@@ -34,9 +35,9 @@ export const timeAgo = (date) => {
 // Live list of questions other students asked on the user's listings and
 // services. One collection-group query over every `comments` subcollection
 // (needs the {path=**}/comments rule and the itemOwnerId+createdAt index).
-// Each item: { id, itemType, itemId, itemTitle, authorId, authorName,
-//              authorPhoto, text, createdAt (Date|null), to }
-export function useActivity(uid) {
+// Each item: { kind: "question", id, itemType, itemId, itemTitle, authorId,
+//              authorName, authorPhoto, text, createdAt (Date|null), to }
+function useQuestions(uid) {
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
@@ -111,6 +112,7 @@ export function useActivity(uid) {
               const photo = author?.photo || "";
               return {
                 ...c,
+                kind: "question",
                 itemTitle: parent.title,
                 authorName: author?.name?.trim() || "Student",
                 authorPhoto: /^https?:\/\//i.test(photo) ? photo : "",
@@ -145,6 +147,83 @@ export function useActivity(uid) {
   }, [uid]);
 
   return { items, loading, error };
+}
+
+// Live system notifications for this student (stage 14c rules: only their own,
+// newest first; needs the uid+createdAt index). Each item:
+// { kind: "post_removed" | "account_approved" | "report_handled", id, itemType,
+//   itemId, itemTitle, reason, outcome, createdAt (Date|null), to (string|null) }
+function useNotifications(uid) {
+  const [items, setItems] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    if (!uid) return;
+    let alive = true;
+    const q = query(
+      collection(db, "notifications"),
+      where("uid", "==", uid),
+      orderBy("createdAt", "desc"),
+      limit(ACTIVITY_LIMIT)
+    );
+    const unsub = onSnapshot(
+      q,
+      (snap) => {
+        if (!alive) return;
+        setItems(
+          snap.docs.map((d) => {
+            const x = d.data();
+            return {
+              kind: x.type,
+              id: d.id,
+              itemType: x.itemType || "",
+              itemId: x.itemId || "",
+              itemTitle: x.itemTitle || "",
+              reason: x.reason || "",
+              outcome: x.outcome || "",
+              createdAt: x.createdAt?.toDate?.() ?? null,
+              // Only a removal has somewhere useful to go: the item page,
+              // which shows the owner "Removed by a moderator".
+              to:
+                x.type === "post_removed" && x.itemId
+                  ? `/${x.itemType === "service" ? "services" : "marketplace"}/${x.itemId}`
+                  : null,
+            };
+          })
+        );
+        setLoading(false);
+      },
+      (err) => {
+        // Not fatal: questions still show. Usually the index is still building.
+        console.error("Notifications query failed:", err);
+        if (alive) setLoading(false);
+      }
+    );
+    return () => {
+      alive = false;
+      unsub();
+    };
+  }, [uid]);
+
+  return { items, loading };
+}
+
+const timeOf = (x) => (x.createdAt ? x.createdAt.getTime() : Number.MAX_SAFE_INTEGER);
+
+// The Activity feed: questions on my items + system notifications, newest
+// first. `error` is only set when questions fail to load.
+export function useActivity(uid) {
+  const questions = useQuestions(uid);
+  const notifications = useNotifications(uid);
+  const items = [...questions.items, ...notifications.items]
+    // An item still waiting for its server timestamp counts as the newest.
+    .sort((a, b) => timeOf(b) - timeOf(a))
+    .slice(0, ACTIVITY_LIMIT);
+  return {
+    items,
+    loading: questions.loading || notifications.loading,
+    error: questions.error,
+  };
 }
 
 // Everything older than this moment counts as read.

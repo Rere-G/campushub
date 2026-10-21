@@ -15,6 +15,7 @@ import {
   HiOutlineExclamationTriangle,
 } from "react-icons/hi2";
 import { auth, db } from "../services/firebase";
+import { notifyAccountApproved } from "../utils/notifications";
 import dashboardBg from "../assets/dashboard-bg.jpg";
 import ReportsPanel from "../components/ReportsPanel";
 import PostsPanel from "../components/PostsPanel";
@@ -231,10 +232,12 @@ export default function Admin() {
     try {
       await updateDoc(doc(db, "users", target.id), patch);
       toast(successMsg, true);
+      return true;
     } catch (err) {
       console.error("Update failed:", err);
       setUsers(prev); // revert
       toast("Couldn't save — please try again.", false);
+      return false;
     } finally {
       setBusyId(null);
     }
@@ -246,7 +249,10 @@ export default function Admin() {
     setUsers((list) => list.map((u) => (u.id === userId ? { ...u, banned: true } : u)));
   }, []);
 
-  const approve = (u) => applyChange(u, { approved: true }, `Approved ${displayName(u)}`);
+  const approve = async (u) => {
+    const ok = await applyChange(u, { approved: true }, `Approved ${displayName(u)}`);
+    if (ok) await notifyAccountApproved(u.id);
+  };
   const unban = (u) => applyChange(u, { banned: false }, `Unbanned ${displayName(u)}`);
 
   const confirmProceed = () => {

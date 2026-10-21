@@ -11,6 +11,7 @@ import {
 } from "react-icons/hi2";
 import { db } from "../services/firebase";
 import { REPORT_REASONS } from "../utils/reports";
+import { notifyPostRemoved, notifyReportHandled } from "../utils/notifications";
 
 const inter = { fontFamily: "'Inter', sans-serif" };
 
@@ -126,6 +127,14 @@ export default function ReportsPanel({ adminUid, users, onUserBanned, onOpenCoun
     const patch = { status, action, resolvedBy: adminUid, resolvedAt: serverTimestamp() };
     for (const r of sameTarget) {
       await updateDoc(doc(db, "reports", r.id), patch);
+      // Tell each reporter the outcome (never who else reported, or anything about the owner).
+      await notifyReportHandled({
+        uid: r.reporterId,
+        itemType: r.itemType,
+        itemId: r.itemId,
+        itemTitle: targets[itemPath(r)]?.data?.title,
+        outcome: action,
+      });
     }
     const ids = new Set(sameTarget.map((r) => r.id));
     setReports((list) =>
@@ -140,6 +149,14 @@ export default function ReportsPanel({ adminUid, users, onUserBanned, onOpenCoun
     } else {
       // Locked: the owner can't restore an admin removal (stage 14).
       await updateDoc(doc(db, itemPath(report)), { status: "removed", removedByAdmin: true });
+      // The owner hears why (the report's reason), never who reported it.
+      await notifyPostRemoved({
+        uid: report.targetOwnerId,
+        itemType: report.itemType,
+        itemId: report.itemId,
+        itemTitle: targets[itemPath(report)]?.data?.title,
+        reason: report.reason,
+      });
     }
     setTargets((t) => ({
       ...t,

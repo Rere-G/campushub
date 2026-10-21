@@ -11,6 +11,7 @@ import {
   HiOutlineLockClosed,
 } from "react-icons/hi2";
 import { db } from "../services/firebase";
+import { REMOVAL_REASONS, notifyPostRemoved } from "../utils/notifications";
 import { categoryLabel } from "../constants/categories";
 import { serviceCategoryEmoji, serviceCategoryLabel } from "../constants/serviceCategories";
 
@@ -75,7 +76,13 @@ export default function PostsPanel({ users, toast }) {
   const [statusFilter, setStatusFilter] = useState("live");
   const [search, setSearch] = useState("");
   const [busyKey, setBusyKey] = useState(null);
-  const [confirmKey, setConfirmKey] = useState(null);
+  // Remove / Lock first ask for a reason, which is sent to the owner.
+  const [confirm, setConfirm] = useState(null); // { key, mode: "remove" | "lock" }
+  const [reason, setReason] = useState("");
+  const askReason = (key, mode) => {
+    setConfirm({ key, mode });
+    setReason("");
+  };
 
   const usersById = useMemo(() => Object.fromEntries(users.map((u) => [u.id, u])), [users]);
 
@@ -119,7 +126,7 @@ export default function PostsPanel({ users, toast }) {
       );
   }, [byType, statusFilter, search, usersById]);
 
-  const setStatus = async (post, next) => {
+  const setStatus = async (post, next, why = "") => {
     const key = `${post.kind}/${post.id}`;
     if (busyKey) return;
     setBusyKey(key);
@@ -134,7 +141,16 @@ export default function PostsPanel({ users, toast }) {
       setPosts((list) =>
         list.map((p) => (p.kind === post.kind && p.id === post.id ? { ...p, status: next, removedByAdmin } : p))
       );
-      setConfirmKey(null);
+      setConfirm(null);
+      if (next === "removed") {
+        await notifyPostRemoved({
+          uid: post.ownerId,
+          itemType: post.kind,
+          itemId: post.id,
+          itemTitle: post.title,
+          reason: why,
+        });
+      }
       toast(
         next === "removed"
           ? post.status === "removed"
@@ -279,9 +295,20 @@ export default function PostsPanel({ users, toast }) {
                   </Link>
                   {p.status === "removed" ? (
                     <>
+                      {confirm?.key === key ? (
+                        <ReasonPicker
+                          label="Lock"
+                          reason={reason}
+                          setReason={setReason}
+                          busy={busy}
+                          onConfirm={() => setStatus(p, "removed", reason)}
+                          onCancel={() => setConfirm(null)}
+                        />
+                      ) : (
+                        <>
                       {!p.removedByAdmin && (
                         <button
-                          onClick={() => setStatus(p, "removed")}
+                          onClick={() => askReason(key, "lock")}
                           disabled={busy}
                           title="Keep it removed: the owner won't be able to restore it"
                           className="inline-flex items-center gap-1.5 rounded-xl border border-[#d6bd97]/35 px-3.5 py-2 text-[12.5px] font-semibold text-[#d6bd97] transition-all hover:bg-[#c9963f]/10 disabled:opacity-40"
@@ -296,27 +323,21 @@ export default function PostsPanel({ users, toast }) {
                       >
                         <HiOutlineArrowUturnLeft className="h-4 w-4" /> Restore
                       </button>
+                        </>
+                      )}
                     </>
-                  ) : confirmKey === key ? (
-                    <>
-                      <button
-                        onClick={() => setStatus(p, "removed")}
-                        disabled={busy}
-                        className="rounded-xl bg-[#f87171]/90 px-3.5 py-2 text-[12.5px] font-semibold text-white transition-all hover:bg-[#f87171] disabled:opacity-40"
-                      >
-                        Yes, remove
-                      </button>
-                      <button
-                        onClick={() => setConfirmKey(null)}
-                        disabled={busy}
-                        className="rounded-xl border border-white/10 px-3.5 py-2 text-[12.5px] font-semibold text-white/70 hover:text-white"
-                      >
-                        Cancel
-                      </button>
-                    </>
+                  ) : confirm?.key === key ? (
+                    <ReasonPicker
+                      label="Remove"
+                      reason={reason}
+                      setReason={setReason}
+                      busy={busy}
+                      onConfirm={() => setStatus(p, "removed", reason)}
+                      onCancel={() => setConfirm(null)}
+                    />
                   ) : (
                     <button
-                      onClick={() => setConfirmKey(key)}
+                      onClick={() => askReason(key, "remove")}
                       disabled={busy}
                       className="inline-flex items-center gap-1.5 rounded-xl border border-[#fca5a5]/40 px-3.5 py-2 text-[12.5px] font-semibold text-[#fca5a5] transition-all hover:bg-[#fca5a5]/10 disabled:opacity-40"
                     >
@@ -329,6 +350,48 @@ export default function PostsPanel({ users, toast }) {
           })}
         </div>
       )}
+    </div>
+  );
+}
+
+// "Why?" chips shown before Remove / Lock. The reason goes to the owner in
+// their Activity feed; the button stays disabled until one is picked.
+function ReasonPicker({ label, reason, setReason, busy, onConfirm, onCancel }) {
+  return (
+    <div className="flex w-full flex-wrap items-center gap-1.5 sm:w-auto" role="group" aria-label="Reason for removal">
+      <span className="mr-1 text-[12px] text-[#f4e6cd]/50">Why?</span>
+      {REMOVAL_REASONS.map((r) => (
+        <button
+          key={r.key}
+          type="button"
+          aria-pressed={reason === r.key}
+          onClick={() => setReason(r.key)}
+          disabled={busy}
+          className={`rounded-full px-2.5 py-1 text-[12px] font-semibold transition-colors ${
+            reason === r.key
+              ? "bg-[#f87171]/90 text-white"
+              : "border border-white/10 text-white/60 hover:border-[#fca5a5]/40 hover:text-white"
+          }`}
+        >
+          {r.label}
+        </button>
+      ))}
+      <button
+        type="button"
+        onClick={onConfirm}
+        disabled={busy || !reason}
+        className="ml-1 rounded-xl bg-[#f87171]/90 px-3.5 py-1.5 text-[12.5px] font-semibold text-white transition-all hover:bg-[#f87171] disabled:cursor-not-allowed disabled:opacity-40"
+      >
+        {label}
+      </button>
+      <button
+        type="button"
+        onClick={onCancel}
+        disabled={busy}
+        className="rounded-xl border border-white/10 px-3 py-1.5 text-[12.5px] font-semibold text-white/70 hover:text-white"
+      >
+        Cancel
+      </button>
     </div>
   );
 }

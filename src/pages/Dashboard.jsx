@@ -16,11 +16,13 @@ import {
   HiOutlineCheck,
   HiOutlineChatBubbleLeftRight,
   HiOutlineExclamationTriangle,
+  HiOutlineFlag,
 } from "react-icons/hi2";
 import { auth, db } from "../services/firebase";
 import mascotGif from "../assets/TS.gif";
 import dashboardBg from "../assets/dashboard-bg.jpg";
 import { markActivityRead, timeAgo, useActivity } from "../utils/activity";
+import { removalReasonText } from "../utils/notifications";
 
 /* ─── Animated counter hook ────────────────────────────────────── */
 function useCountUp(target, duration = 1100, active = false) {
@@ -603,49 +605,37 @@ export default function Dashboard() {
                 <ul className="-mr-2 max-h-[420px] space-y-2.5 overflow-y-auto pr-2">
                   {activity.map((item, i) => {
                     const unread = isUnread(item);
+                    const rowCls = `flex items-start gap-3 rounded-[18px] border px-4 py-3.5 transition-all duration-300 ${
+                      unread ? "border-[#c9963f]/25 bg-[#c9963f]/[0.06]" : "border-white/[0.06] bg-white/[0.03]"
+                    } ${item.to ? "hover:bg-white/[0.07] hover:border-white/[0.12]" : ""}`;
+                    const body = (
+                      <>
+                        <ActivityIcon item={item} />
+                        <div className="min-w-0 flex-1">
+                          <ActivityText item={item} />
+                        </div>
+                        {unread && (
+                          <span
+                            className="mt-2 h-2 w-2 shrink-0 rounded-full bg-[#c9963f] shadow-[0_0_6px_#c9963f]"
+                            aria-label="Unread"
+                          />
+                        )}
+                      </>
+                    );
                     return (
                       <li
-                        key={`${item.itemId}-${item.id}`}
+                        key={`${item.kind}-${item.id}`}
                         style={{
                           opacity: show ? 1 : 0,
                           transform: show ? "translateX(0)" : "translateX(-10px)",
                           transition: `opacity 0.5s ease ${350 + Math.min(i, 6) * 70}ms, transform 0.5s ease ${350 + Math.min(i, 6) * 70}ms`,
                         }}
                       >
-                        <Link
-                          to={item.to}
-                          className={`flex items-start gap-3 rounded-[18px] border px-4 py-3.5 transition-all duration-300 hover:bg-white/[0.07] hover:border-white/[0.12] ${
-                            unread ? "border-[#c9963f]/25 bg-[#c9963f]/[0.06]" : "border-white/[0.06] bg-white/[0.03]"
-                          }`}
-                        >
-                          <div className="relative mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center overflow-hidden rounded-full border border-white/10 bg-white/[0.06] text-xs font-bold text-[#f4e6cd]">
-                            {item.authorPhoto ? (
-                              <img src={item.authorPhoto} alt="" className="h-full w-full object-cover" />
-                            ) : (
-                              item.authorName.slice(0, 1).toUpperCase()
-                            )}
-                          </div>
-                          <div className="min-w-0 flex-1">
-                            <p className="text-sm leading-5 text-white/70">
-                              <span className="font-semibold text-white">{item.authorName}</span>{" "}
-                              asked on{" "}
-                              <span className="font-semibold text-[#d6bd97]">{item.itemTitle}</span>
-                            </p>
-                            <p className="mt-1 line-clamp-2 break-words text-[13px] leading-5 text-white/45">
-                              “{item.text}”
-                            </p>
-                            <p className="mt-1 flex items-center gap-1.5 text-[11px] text-white/30">
-                              <HiOutlineChatBubbleLeftRight className="h-3 w-3" />
-                              {item.itemType === "listing" ? "Listing" : "Service"} · {timeAgo(item.createdAt)}
-                            </p>
-                          </div>
-                          {unread && (
-                            <span
-                              className="mt-2 h-2 w-2 shrink-0 rounded-full bg-[#c9963f] shadow-[0_0_6px_#c9963f]"
-                              aria-label="Unread"
-                            />
-                          )}
-                        </Link>
+                        {item.to ? (
+                          <Link to={item.to} className={rowCls}>{body}</Link>
+                        ) : (
+                          <div className={rowCls}>{body}</div>
+                        )}
                       </li>
                     );
                   })}
@@ -662,7 +652,7 @@ export default function Dashboard() {
                     No activity yet
                   </p>
                   <p className="mt-1 max-w-[240px] text-sm leading-6 text-white/35">
-                    Questions on your listings and services will show up here.
+                    Questions on your posts and updates from moderators will show up here.
                   </p>
                 </div>
               )}
@@ -684,4 +674,103 @@ export default function Dashboard() {
       </div>
     </div>
   );
+}
+
+/* ─── Activity row pieces ───────────────────────────────────────── */
+// Questions show the asker's avatar; system notifications show an icon.
+function ActivityIcon({ item }) {
+  if (item.kind === "question") {
+    return (
+      <div className="relative mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center overflow-hidden rounded-full border border-white/10 bg-white/[0.06] text-xs font-bold text-[#f4e6cd]">
+        {item.authorPhoto ? (
+          <img src={item.authorPhoto} alt="" className="h-full w-full object-cover" />
+        ) : (
+          item.authorName.slice(0, 1).toUpperCase()
+        )}
+      </div>
+    );
+  }
+  const look = {
+    post_removed: { Icon: HiOutlineShieldCheck, ring: "rgba(248,113,113,0.35)", bg: "rgba(248,113,113,0.12)", color: "#fca5a5" },
+    account_approved: { Icon: HiOutlineCheckBadge, ring: "rgba(16,185,129,0.35)", bg: "rgba(16,185,129,0.12)", color: "#6ee7b7" },
+    report_handled: { Icon: HiOutlineFlag, ring: "rgba(201,150,63,0.35)", bg: "rgba(201,150,63,0.12)", color: "#d6bd97" },
+  }[item.kind] || { Icon: HiOutlineBellAlert, ring: "rgba(255,255,255,0.12)", bg: "rgba(255,255,255,0.06)", color: "#f4e6cd" };
+  const Icon = look.Icon;
+  return (
+    <div
+      className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full"
+      style={{ border: `1px solid ${look.ring}`, background: look.bg }}
+    >
+      <Icon className="h-4 w-4" style={{ color: look.color }} />
+    </div>
+  );
+}
+
+function ActivityText({ item }) {
+  const noun = item.itemType === "service" ? "service" : "listing";
+  const meta = (label) => (
+    <p className="mt-1 text-[11px] text-white/30">
+      {label} · {timeAgo(item.createdAt)}
+    </p>
+  );
+
+  if (item.kind === "question") {
+    return (
+      <>
+        <p className="text-sm leading-5 text-white/70">
+          <span className="font-semibold text-white">{item.authorName}</span>{" "}
+          asked on{" "}
+          <span className="font-semibold text-[#d6bd97]">{item.itemTitle}</span>
+        </p>
+        <p className="mt-1 line-clamp-2 break-words text-[13px] leading-5 text-white/45">“{item.text}”</p>
+        <p className="mt-1 flex items-center gap-1.5 text-[11px] text-white/30">
+          <HiOutlineChatBubbleLeftRight className="h-3 w-3" />
+          {item.itemType === "listing" ? "Listing" : "Service"} · {timeAgo(item.createdAt)}
+        </p>
+      </>
+    );
+  }
+
+  if (item.kind === "post_removed") {
+    return (
+      <>
+        <p className="text-sm leading-5 text-white/70">
+          A moderator removed your {noun}{" "}
+          <span className="font-semibold text-[#d6bd97]">{item.itemTitle}</span>
+        </p>
+        <p className="mt-1 text-[13px] leading-5 text-white/45">Reason: {removalReasonText(item.reason)}.</p>
+        {meta("Moderation")}
+      </>
+    );
+  }
+
+  if (item.kind === "account_approved") {
+    return (
+      <>
+        <p className="text-sm font-semibold leading-5 text-white">Your account was approved</p>
+        <p className="mt-1 text-[13px] leading-5 text-white/45">Welcome to CampusHub! You can now post, save and ask questions.</p>
+        {meta("Account")}
+      </>
+    );
+  }
+
+  if (item.kind === "report_handled") {
+    const outcome =
+      item.outcome === "dismissed"
+        ? "We looked and left it up. Thanks for telling us."
+        : item.outcome === "banned"
+        ? "We took action. Thanks for keeping CampusHub safe."
+        : "We removed it. Thanks for keeping CampusHub safe.";
+    return (
+      <>
+        <p className="text-sm leading-5 text-white/70">
+          Your report on <span className="font-semibold text-[#d6bd97]">{item.itemTitle}</span> was reviewed
+        </p>
+        <p className="mt-1 text-[13px] leading-5 text-white/45">{outcome}</p>
+        {meta("Report")}
+      </>
+    );
+  }
+
+  return null;
 }
