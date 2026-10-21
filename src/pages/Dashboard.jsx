@@ -602,7 +602,7 @@ export default function Dashboard() {
                   <p className="mt-1 text-xs text-white/35">Refresh the page to try again.</p>
                 </div>
               ) : activity.length > 0 ? (
-                <ul className="-mr-2 max-h-[420px] space-y-2.5 overflow-y-auto pr-2">
+                <ul className="ch-scroll ch-fade-bottom -mr-3 max-h-[420px] space-y-2.5 overflow-y-auto py-1 pb-6 pr-3">
                   {activity.map((item, i) => {
                     const unread = isUnread(item);
                     const rowCls = `flex items-start gap-3 rounded-[18px] border px-4 py-3.5 transition-all duration-300 ${

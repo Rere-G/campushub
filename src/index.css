@@ -74,3 +74,19 @@
 @media (prefers-reduced-motion: reduce) {
   .animate-mascot-bob, .animate-shadow-pulse { animation: none; }
 }
+
+/* Dark, thin scroll areas (Activity feed, chat lists). */
+.ch-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(201, 150, 63, 0.35) transparent;
+  overscroll-behavior: contain;
+}
+.ch-scroll::-webkit-scrollbar { width: 6px; }
+.ch-scroll::-webkit-scrollbar-track { background: transparent; }
+.ch-scroll::-webkit-scrollbar-thumb { background: rgba(201, 150, 63, 0.35); border-radius: 999px; }
+.ch-scroll::-webkit-scrollbar-thumb:hover { background: rgba(201, 150, 63, 0.6); }
+/* Soft fade at the bottom so a cut-off row reads as "more below". */
+.ch-fade-bottom {
+  -webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - 28px), transparent);
+  mask-image: linear-gradient(to bottom, #000 calc(100% - 28px), transparent);
+}
