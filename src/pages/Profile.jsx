@@ -3,6 +3,7 @@ import { Link, useNavigate } from "react-router-dom";
 import { onAuthStateChanged } from "firebase/auth";
 import { doc, getDoc, updateDoc, setDoc, serverTimestamp } from "firebase/firestore";
 import { auth, db } from "../services/firebase";
+import { memberSinceFor } from "../utils/publicProfile";
 import dashboardBg from "../assets/dashboard-bg.jpg";
 
 const inter = { fontFamily: "'Inter', sans-serif" };
@@ -189,7 +190,13 @@ export default function Profile() {
       try {
         await setDoc(
           doc(db, "publicProfiles", user.uid),
-          { name: displayName, photo: profile?.profilePhoto || "", updatedAt: serverTimestamp() },
+          {
+            name: displayName,
+            photo: profile?.profilePhoto || "",
+            department: form.department.trim().slice(0, 80),
+            ...(memberSinceFor(user) ? { memberSince: memberSinceFor(user) } : {}),
+            updatedAt: serverTimestamp(),
+          },
           { merge: true }
         );
       } catch (mirrorErr) {

@@ -9,7 +9,6 @@ import {
   HiOutlineWrenchScrewdriver,
   HiOutlineBookmark,
   HiBookmark,
-  HiOutlineInformationCircle,
   HiOutlineExclamationTriangle,
   HiOutlinePause,
   HiOutlinePlay,
@@ -21,6 +20,7 @@ import { serviceCategoryEmoji, serviceCategoryLabel } from "../constants/service
 import { saveIdFor, toggleSave } from "../utils/saves";
 import Comments from "../components/Comments";
 import ReportButton from "../components/ReportButton";
+import MessageButton from "../components/MessageButton";
 
 const inter = { fontFamily: "'Inter', sans-serif" };
 
@@ -223,7 +223,6 @@ export default function ServiceDetail() {
       ? { text: "Removed", cls: "text-[#f4e6cd]/60", bg: "rgba(255,255,255,0.08)" }
       : null;
   const isOwn = uid === service.providerId;
-  const providerFirst = provider?.name ? provider.name.split(" ")[0] : "the provider";
 
   return (
     <Shell>
@@ -351,13 +350,13 @@ export default function ServiceDetail() {
             </div>
 
             {!isOwn && (
-              <div className="mt-4 flex items-start gap-2.5 rounded-xl border border-white/10 bg-white/[0.03] px-3.5 py-3">
-                <HiOutlineInformationCircle className="mt-0.5 h-4 w-4 shrink-0 text-[#d6bd97]/70" />
-                <p className="text-xs leading-relaxed text-[#f4e6cd]/55">
-                  CampusHub doesn't have private messages yet. Ask in the comments, or find {providerFirst} on
-                  campus to agree on details.
-                </p>
-              </div>
+              <MessageButton
+                uid={uid}
+                item={{ id, title: service.title, ownerId: service.providerId }}
+                itemType="service"
+                ownerName={provider?.name}
+                disabled={service.status === "removed"}
+              />
             )}
 
             {!isOwn && service.status !== "removed" && (

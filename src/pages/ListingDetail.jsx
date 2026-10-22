@@ -9,7 +9,6 @@ import {
   HiOutlineTag,
   HiOutlineBookmark,
   HiBookmark,
-  HiOutlineInformationCircle,
   HiOutlineExclamationTriangle,
   HiOutlineShoppingBag,
   HiOutlineCheckCircle,
@@ -22,6 +21,7 @@ import { categoryLabel } from "../constants/categories";
 import { saveIdFor, toggleSave } from "../utils/saves";
 import Comments from "../components/Comments";
 import ReportButton from "../components/ReportButton";
+import MessageButton from "../components/MessageButton";
 
 const inter = { fontFamily: "'Inter', sans-serif" };
 
@@ -353,13 +353,13 @@ export default function ListingDetail() {
             </div>
 
             {!isOwnListing && (
-              <div className="mt-4 flex items-start gap-2.5 rounded-xl border border-white/10 bg-white/[0.03] px-3.5 py-3">
-                <HiOutlineInformationCircle className="mt-0.5 h-4 w-4 shrink-0 text-[#d6bd97]/70" />
-                <p className="text-xs leading-relaxed text-[#f4e6cd]/55">
-                  CampusHub doesn't have private messages yet. Ask in the comments, or find{" "}
-                  {seller?.name ? seller.name.split(" ")[0] : "the seller"} on campus to arrange pickup.
-                </p>
-              </div>
+              <MessageButton
+                uid={uid}
+                item={{ id, title: listing.title, ownerId: listing.sellerId }}
+                itemType="listing"
+                ownerName={seller?.name}
+                disabled={listing.status === "removed"}
+              />
             )}
 
             {!isOwnListing && listing.status !== "removed" && (
