@@ -1005,6 +1005,228 @@ async function main() {
     await assertFails(deleteDoc(doc(db, "notifications/seed-n1")));
   });
 
+  // ---- Chat (stage 15) ----
+  // Seller: approved-user (owns listing1 / service1). Buyer: other-approved-user.
+  // Outsider: third-user. Conversation id = itemId_buyerUid.
+  const CONV = "conversations/listing1_other-approved-user";
+  const convData = (overrides = {}) => ({
+    itemType: "listing",
+    itemId: "listing1",
+    itemTitle: "x",
+    buyerId: "other-approved-user",
+    sellerId: "approved-user",
+    participants: ["other-approved-user", "approved-user"],
+    createdAt: serverTimestamp(),
+    updatedAt: serverTimestamp(),
+    lastMessage: "",
+    lastSenderId: "",
+    ...overrides,
+  });
+  const textMsg = (senderId, text = "Is it still available?") => ({
+    senderId, type: "text", text, createdAt: serverTimestamp(),
+  });
+  const inDays = (d) => new Date(Date.now() + d * 24 * 60 * 60 * 1000);
+  const meetingMsg = (senderId, overrides = {}) => ({
+    senderId, type: "meeting", spot: "library", meetAt: inDays(2), status: "pending",
+    createdAt: serverTimestamp(), ...overrides,
+  });
+  const asBuyer = () => testEnv.authenticatedContext("other-approved-user").firestore();
+  const asSeller = () => testEnv.authenticatedContext("approved-user").firestore();
+  const asOutsider = () => testEnv.authenticatedContext("third-user").firestore();
+
+  // 105. Buyer starts a chat about listing1.
+  await run("105. buyer creates conversation -> Allow", async () => {
+    await assertSucceeds(setDoc(doc(asBuyer(), CONV), convData()));
+  });
+
+  // 106. Chat id doesn't end in the creator's uid.
+  await run("106. conversation id for someone else -> Deny", async () => {
+    await assertFails(setDoc(doc(asBuyer(), "conversations/service1_third-user"),
+      convData({ itemType: "service", itemId: "service1" })));
+  });
+
+  // 107. sellerId isn't the item's real owner.
+  await run("107. conversation with a fake seller -> Deny", async () => {
+    await assertFails(setDoc(doc(asBuyer(), "conversations/service1_other-approved-user"),
+      convData({ itemType: "service", itemId: "service1", sellerId: "third-user",
+                 participants: ["other-approved-user", "third-user"] })));
+  });
+
+  // 108. Owner messages themselves about their own item.
+  await run("108. seller starts chat with self -> Deny", async () => {
+    await assertFails(setDoc(doc(asSeller(), "conversations/service1_approved-user"),
+      convData({ itemType: "service", itemId: "service1", buyerId: "approved-user",
+                 participants: ["approved-user", "approved-user"] })));
+  });
+
+  // 109. Chat about a removed listing.
+  await run("109. conversation on a removed listing -> Deny", async () => {
+    await assertFails(setDoc(doc(asBuyer(), "conversations/listing-removed_other-approved-user"),
+      convData({ itemId: "listing-removed" })));
+  });
+
+  // 110. Pending (unapproved) student starts a chat.
+  await run("110. pending user creates conversation -> Deny", async () => {
+    const db = testEnv.authenticatedContext("pending-user").firestore();
+    await assertFails(setDoc(doc(db, "conversations/service1_pending-user"),
+      convData({ itemType: "service", itemId: "service1", buyerId: "pending-user",
+                 participants: ["pending-user", "approved-user"] })));
+  });
+
+  // 111. Outsider reads the chat.
+  await run("111. outsider reads conversation -> Deny", async () => {
+    await assertFails(getDoc(doc(asOutsider(), CONV)));
+  });
+
+  // 112. Buyer checks for a chat that doesn't exist yet ("already chatting?").
+  await run("112. buyer looks up own not-yet-created chat -> Allow", async () => {
+    await assertSucceeds(getDoc(doc(asBuyer(), "conversations/service1_other-approved-user")));
+  });
+
+  // 113. Inbox query (participants array-contains me).
+  await run("113. participant lists own conversations -> Allow", async () => {
+    await assertSucceeds(getDocs(query(collection(asSeller(), "conversations"),
+      where("participants", "array-contains", "approved-user"))));
+  });
+
+  // 114. Listing every conversation.
+  await run("114. list all conversations without filter -> Deny", async () => {
+    await assertFails(getDocs(collection(asSeller(), "conversations")));
+  });
+
+  // 115-116. Both participants can send text.
+  await run("115. buyer sends a text message -> Allow", async () => {
+    await assertSucceeds(setDoc(doc(asBuyer(), `${CONV}/messages/m1`), textMsg("other-approved-user")));
+  });
+  await run("116. seller sends a text message -> Allow", async () => {
+    await assertSucceeds(setDoc(doc(asSeller(), `${CONV}/messages/m2`), textMsg("approved-user", "Yes it is")));
+  });
+
+  // 117. Outsider writes into the chat.
+  await run("117. outsider sends a message -> Deny", async () => {
+    await assertFails(setDoc(doc(asOutsider(), `${CONV}/messages/m3`), textMsg("third-user")));
+  });
+
+  // 118. Buyer sends a message pretending to be the seller.
+  await run("118. message with spoofed senderId -> Deny", async () => {
+    await assertFails(setDoc(doc(asBuyer(), `${CONV}/messages/m4`), textMsg("approved-user")));
+  });
+
+  // 119-120. Empty and too-long text.
+  await run("119. empty text message -> Deny", async () => {
+    await assertFails(setDoc(doc(asBuyer(), `${CONV}/messages/m5`), textMsg("other-approved-user", "")));
+  });
+  await run("120. 1001-character message -> Deny", async () => {
+    await assertFails(setDoc(doc(asBuyer(), `${CONV}/messages/m6`), textMsg("other-approved-user", "a".repeat(1001))));
+  });
+
+  // 121. Buyer updates the inbox preview after sending (and marks own read).
+  await run("121. sender updates preview + own read time -> Allow", async () => {
+    await assertSucceeds(updateDoc(doc(asBuyer(), CONV), {
+      lastMessage: "Is it still available?", lastSenderId: "other-approved-user",
+      updatedAt: serverTimestamp(), buyerReadAt: serverTimestamp(),
+    }));
+  });
+
+  // 122. Preview claims the other person sent it.
+  await run("122. preview with someone else as lastSenderId -> Deny", async () => {
+    await assertFails(updateDoc(doc(asBuyer(), CONV), {
+      lastMessage: "x", lastSenderId: "approved-user", updatedAt: serverTimestamp(),
+    }));
+  });
+
+  // 123-124. Read times: only your own.
+  await run("123. buyer sets the seller's read time -> Deny", async () => {
+    await assertFails(updateDoc(doc(asBuyer(), CONV), { sellerReadAt: serverTimestamp() }));
+  });
+  await run("124. seller marks the chat read -> Allow", async () => {
+    await assertSucceeds(updateDoc(doc(asSeller(), CONV), { sellerReadAt: serverTimestamp() }));
+  });
+
+  // 125-126. Messages are never edited or deleted.
+  await run("125. edit a text message -> Deny", async () => {
+    await assertFails(updateDoc(doc(asBuyer(), `${CONV}/messages/m1`), { text: "changed" }));
+  });
+  await run("126. delete a message -> Deny", async () => {
+    await assertFails(deleteDoc(doc(asBuyer(), `${CONV}/messages/m1`)));
+  });
+
+  // 127. Buyer proposes a meeting at a fixed spot in 2 days.
+  await run("127. valid meeting proposal -> Allow", async () => {
+    await assertSucceeds(setDoc(doc(asBuyer(), `${CONV}/messages/meet1`), meetingMsg("other-approved-user")));
+  });
+
+  // 128-130. Bad spot, past time, too far ahead.
+  await run("128. meeting at an unknown spot -> Deny", async () => {
+    await assertFails(setDoc(doc(asBuyer(), `${CONV}/messages/meetX1`),
+      meetingMsg("other-approved-user", { spot: "my_house" })));
+  });
+  await run("129. meeting in the past -> Deny", async () => {
+    await assertFails(setDoc(doc(asBuyer(), `${CONV}/messages/meetX2`),
+      meetingMsg("other-approved-user", { meetAt: inDays(-1) })));
+  });
+  await run("130. meeting more than 60 days ahead -> Deny", async () => {
+    await assertFails(setDoc(doc(asBuyer(), `${CONV}/messages/meetX3`),
+      meetingMsg("other-approved-user", { meetAt: inDays(61) })));
+  });
+
+  // 131. Proposer accepts their own proposal.
+  await run("131. proposer accepts own meeting -> Deny", async () => {
+    await assertFails(updateDoc(doc(asBuyer(), `${CONV}/messages/meet1`),
+      { status: "accepted", respondedAt: serverTimestamp() }));
+  });
+
+  // 132. Outsider answers the proposal.
+  await run("132. outsider answers a meeting -> Deny", async () => {
+    await assertFails(updateDoc(doc(asOutsider(), `${CONV}/messages/meet1`),
+      { status: "declined", respondedAt: serverTimestamp() }));
+  });
+
+  // 133. The other person declines.
+  await run("133. other participant declines -> Allow", async () => {
+    await assertSucceeds(updateDoc(doc(asSeller(), `${CONV}/messages/meet1`),
+      { status: "declined", respondedAt: serverTimestamp() }));
+  });
+
+  // 134. Changing a decided proposal.
+  await run("134. change an already-decided meeting -> Deny", async () => {
+    await assertFails(updateDoc(doc(asSeller(), `${CONV}/messages/meet1`),
+      { status: "accepted", respondedAt: serverTimestamp() }));
+  });
+
+  // 135. Proposer cancels their own pending proposal.
+  await run("135. proposer cancels own pending meeting -> Allow", async () => {
+    await setDoc(doc(asBuyer(), `${CONV}/messages/meet2`), meetingMsg("other-approved-user"));
+    await assertSucceeds(updateDoc(doc(asBuyer(), `${CONV}/messages/meet2`),
+      { status: "cancelled", respondedAt: serverTimestamp() }));
+  });
+
+  // 136. Banned participant sends a message.
+  await run("136. banned participant sends a message -> Deny", async () => {
+    await testEnv.withSecurityRulesDisabled(async (context) => {
+      await setDoc(doc(context.firestore(), "conversations/listing1_banned-user"), {
+        ...convData({ buyerId: "banned-user", participants: ["banned-user", "approved-user"] }),
+        createdAt: new Date(), updatedAt: new Date(),
+      });
+    });
+    const db = testEnv.authenticatedContext("banned-user").firestore();
+    await assertFails(setDoc(doc(db, "conversations/listing1_banned-user/messages/b1"), textMsg("banned-user")));
+  });
+
+  // 137. Public profile with department + memberSince.
+  await run("137. publicProfiles with department + memberSince -> Allow", async () => {
+    await assertSucceeds(setDoc(doc(asSeller(), "publicProfiles/approved-user"), {
+      name: "Test", photo: "", updatedAt: new Date(), department: "Computer Science", memberSince: new Date(),
+    }));
+  });
+
+  // 138. Public profile leaking a private field.
+  await run("138. publicProfiles with an email field -> Deny", async () => {
+    await assertFails(setDoc(doc(asSeller(), "publicProfiles/approved-user"), {
+      name: "Test", photo: "", updatedAt: new Date(), email: "x@y.z",
+    }));
+  });
+
   await testEnv.cleanup();
 
   const failed = results.filter((r) => !r.pass);

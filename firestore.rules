@@ -87,6 +87,32 @@ service cloud.firestore {
                && d.outcome in ['removed', 'dismissed', 'banned']);
     }
 
+    // ---- Chat helpers (stage 15) ----
+    function convDoc(convId) {
+      return get(/databases/$(database)/documents/conversations/$(convId));
+    }
+    function isParticipant(convId) {
+      return request.auth != null && request.auth.uid in convDoc(convId).data.participants;
+    }
+    // The chat's item must exist, not be removed, and belong to sellerId.
+    function chatItemOk(d) {
+      return (d.itemType == 'listing'
+               && exists(/databases/$(database)/documents/listings/$(d.itemId))
+               && get(/databases/$(database)/documents/listings/$(d.itemId)).data.sellerId == d.sellerId
+               && get(/databases/$(database)/documents/listings/$(d.itemId)).data.status != 'removed')
+        || (d.itemType == 'service'
+               && exists(/databases/$(database)/documents/services/$(d.itemId))
+               && get(/databases/$(database)/documents/services/$(d.itemId)).data.providerId == d.sellerId
+               && get(/databases/$(database)/documents/services/$(d.itemId)).data.status != 'removed');
+    }
+    // Each participant has their own "last read" field.
+    function myReadField() {
+      return request.auth.uid == resource.data.buyerId ? 'buyerReadAt' : 'sellerReadAt';
+    }
+    function meetingSpots() {
+      return ['library', 'canteen', 'student_union', 'main_gate', 'sports_centre'];
+    }
+
     match /users/{uid} {
       // You read your own doc; an admin may read any user's doc (to review them).
       allow read: if request.auth != null && (request.auth.uid == uid || isAdmin());
@@ -258,8 +284,13 @@ service cloud.firestore {
     match /publicProfiles/{uid} {
       allow read: if request.auth != null;
 
+      // department + memberSince are shown in chat headers (stage 15). They are
+      // self-reported like the rest of the profile, so they're length/type checked only.
       allow create, update: if request.auth != null && request.auth.uid == uid
-        && request.resource.data.keys().hasOnly(['name', 'photo', 'updatedAt']);
+        && request.resource.data.keys().hasOnly(['name', 'photo', 'updatedAt', 'department', 'memberSince'])
+        && (!('department' in request.resource.data)
+            || (request.resource.data.department is string && request.resource.data.department.size() <= 80))
+        && (!('memberSince' in request.resource.data) || request.resource.data.memberSince is timestamp);
 
       allow delete: if false;
     }
@@ -342,6 +373,95 @@ service cloud.firestore {
         && notifShapeOk(request.resource.data);
 
       allow update, delete: if false;
+    }
+
+    // Chat (stage 15). One conversation per item + buyer; id = itemId_buyerUid.
+    // Only the two participants can read or write it. Nothing is ever deleted.
+    match /conversations/{convId} {
+      // The buyer may look up their own chat id before it exists ("already chatting?").
+      allow get: if request.auth != null
+        && ((convId.split('_').size() == 2 && convId.split('_')[1] == request.auth.uid)
+            || request.auth.uid in resource.data.participants);
+      // Inbox: queries must filter participants array-contains me.
+      allow list: if request.auth != null && request.auth.uid in resource.data.participants;
+
+      allow create: if isApprovedAndActive()
+        && request.resource.data.keys().hasOnly([
+             'itemType', 'itemId', 'itemTitle', 'buyerId', 'sellerId', 'participants',
+             'createdAt', 'updatedAt', 'lastMessage', 'lastSenderId'])
+        && request.resource.data.buyerId == request.auth.uid
+        && convId == request.resource.data.itemId + '_' + request.auth.uid
+        && request.resource.data.sellerId is string
+        && request.resource.data.sellerId != request.auth.uid
+        && request.resource.data.participants == [request.auth.uid, request.resource.data.sellerId]
+        && request.resource.data.itemTitle is string
+        && request.resource.data.itemTitle.size() <= 200
+        && request.resource.data.createdAt == request.time
+        && request.resource.data.updatedAt == request.time
+        && request.resource.data.lastMessage == ''
+        && request.resource.data.lastSenderId == ''
+        && chatItemOk(request.resource.data);
+
+      allow update: if request.auth != null
+        && request.auth.uid in resource.data.participants
+        && (
+          // After sending: the inbox preview, sent by me now (may also mark my own read time).
+          (isApprovedAndActive()
+            && request.resource.data.diff(resource.data).affectedKeys()
+                 .hasOnly(['lastMessage', 'lastSenderId', 'updatedAt', myReadField()])
+            && request.resource.data.lastSenderId == request.auth.uid
+            && request.resource.data.updatedAt == request.time
+            && request.resource.data.lastMessage is string
+            && request.resource.data.lastMessage.size() <= 140
+            && (!(myReadField() in request.resource.data.diff(resource.data).affectedKeys())
+                || request.resource.data[myReadField()] == request.time))
+          ||
+          // Mark as read: only my own read time, set to now.
+          (request.resource.data.diff(resource.data).affectedKeys().hasOnly([myReadField()])
+            && request.resource.data[myReadField()] == request.time)
+        );
+
+      allow delete: if false;
+
+      match /messages/{msgId} {
+        allow read: if isParticipant(convId);
+
+        allow create: if isApprovedAndActive()
+          && isParticipant(convId)
+          && request.resource.data.senderId == request.auth.uid
+          && request.resource.data.createdAt == request.time
+          && (
+            (request.resource.data.type == 'text'
+              && request.resource.data.keys().hasOnly(['senderId', 'type', 'text', 'createdAt'])
+              && request.resource.data.text is string
+              && request.resource.data.text.size() >= 1
+              && request.resource.data.text.size() <= 1000)
+            ||
+            // Meeting proposal: a fixed public spot, a time in the next 60 days, starts pending.
+            (request.resource.data.type == 'meeting'
+              && request.resource.data.keys().hasOnly(['senderId', 'type', 'spot', 'meetAt', 'status', 'createdAt'])
+              && request.resource.data.spot in meetingSpots()
+              && request.resource.data.meetAt is timestamp
+              && request.resource.data.meetAt > request.time
+              && request.resource.data.meetAt < request.time + duration.value(60, 'd')
+              && request.resource.data.status == 'pending')
+          );
+
+        // Answering a pending proposal, once: the other person accepts/declines,
+        // the sender may cancel. Text messages are never edited.
+        allow update: if isApprovedAndActive()
+          && isParticipant(convId)
+          && resource.data.type == 'meeting'
+          && resource.data.status == 'pending'
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'respondedAt'])
+          && request.resource.data.respondedAt == request.time
+          && ((request.auth.uid != resource.data.senderId
+                && request.resource.data.status in ['accepted', 'declined'])
+              || (request.auth.uid == resource.data.senderId
+                && request.resource.data.status == 'cancelled'));
+
+        allow delete: if false;
+      }
     }
   }
 }
