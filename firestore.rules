@@ -112,6 +112,26 @@ service cloud.firestore {
     function meetingSpots() {
       return ['library', 'canteen', 'student_union', 'main_gate', 'sports_centre'];
     }
+    // Chat upgrades (stage 15c).
+    function replyToOk(d) {
+      return !('replyTo' in d)
+        || (d.replyTo is map
+            && d.replyTo.keys().hasAll(['id', 'senderId', 'text'])
+            && d.replyTo.keys().hasOnly(['id', 'senderId', 'text'])
+            && d.replyTo.id is string
+            && d.replyTo.senderId is string
+            && d.replyTo.text is string
+            && d.replyTo.text.size() <= 140);
+    }
+    // Each person may set, change or remove ONLY their own reaction.
+    function reactionOk() {
+      let before = resource.data.get('reactions', {});
+      let after = request.resource.data.reactions;
+      return after is map
+        && after.diff(before).affectedKeys().hasOnly([request.auth.uid])
+        && (!(request.auth.uid in after)
+            || after[request.auth.uid] in ['like', 'love', 'laugh', 'wow', 'sad']);
+    }
 
     match /users/{uid} {
       // You read your own doc; an admin may read any user's doc (to review them).
@@ -419,6 +439,13 @@ service cloud.firestore {
           // Mark as read: only my own read time, set to now.
           (request.resource.data.diff(resource.data).affectedKeys().hasOnly([myReadField()])
             && request.resource.data[myReadField()] == request.time)
+          ||
+          // I edited/deleted my own latest message: fix ONLY the preview text
+          // (no re-ordering, doesn't make the chat unread for the other person).
+          (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['lastMessage'])
+            && resource.data.lastSenderId == request.auth.uid
+            && request.resource.data.lastMessage is string
+            && request.resource.data.lastMessage.size() <= 140)
         );
 
       allow delete: if false;
@@ -431,11 +458,13 @@ service cloud.firestore {
           && request.resource.data.senderId == request.auth.uid
           && request.resource.data.createdAt == request.time
           && (
+            // Text, optionally replying to an earlier message (a short quote).
             (request.resource.data.type == 'text'
-              && request.resource.data.keys().hasOnly(['senderId', 'type', 'text', 'createdAt'])
+              && request.resource.data.keys().hasOnly(['senderId', 'type', 'text', 'createdAt', 'replyTo'])
               && request.resource.data.text is string
               && request.resource.data.text.size() >= 1
-              && request.resource.data.text.size() <= 1000)
+              && request.resource.data.text.size() <= 1000
+              && replyToOk(request.resource.data))
             ||
             // Meeting proposal: a fixed public spot, a time in the next 60 days, starts pending.
             (request.resource.data.type == 'meeting'
@@ -445,21 +474,67 @@ service cloud.firestore {
               && request.resource.data.meetAt > request.time
               && request.resource.data.meetAt < request.time + duration.value(60, 'd')
               && request.resource.data.status == 'pending')
+            ||
+            // Price offer in whole Kyat, starts pending (stage 15c).
+            (request.resource.data.type == 'offer'
+              && request.resource.data.keys().hasOnly(['senderId', 'type', 'amount', 'status', 'createdAt'])
+              && request.resource.data.amount is int
+              && request.resource.data.amount >= 1
+              && request.resource.data.amount <= 100000000
+              && request.resource.data.status == 'pending')
           );
 
-        // Answering a pending proposal, once: the other person accepts/declines,
-        // the sender may cancel. Text messages are never edited.
         allow update: if isApprovedAndActive()
           && isParticipant(convId)
-          && resource.data.type == 'meeting'
-          && resource.data.status == 'pending'
-          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'respondedAt'])
-          && request.resource.data.respondedAt == request.time
-          && ((request.auth.uid != resource.data.senderId
-                && request.resource.data.status in ['accepted', 'declined'])
-              || (request.auth.uid == resource.data.senderId
-                && request.resource.data.status == 'cancelled'));
+          && (
+            // Answering a pending meeting/offer, once: the other person accepts or
+            // declines, the sender may cancel.
+            (resource.data.type in ['meeting', 'offer']
+              && resource.data.status == 'pending'
+              && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'respondedAt'])
+              && request.resource.data.respondedAt == request.time
+              && ((request.auth.uid != resource.data.senderId
+                    && request.resource.data.status in ['accepted', 'declined'])
+                  || (request.auth.uid == resource.data.senderId
+                    && request.resource.data.status == 'cancelled')))
+            ||
+            // Edit my own text within 15 minutes of sending.
+            (resource.data.type == 'text'
+              && resource.data.senderId == request.auth.uid
+              && resource.data.get('deleted', false) == false
+              && request.time < resource.data.createdAt + duration.value(15, 'm')
+              && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['text', 'editedAt'])
+              && request.resource.data.text is string
+              && request.resource.data.text.size() >= 1
+              && request.resource.data.text.size() <= 1000
+              && request.resource.data.editedAt == request.time)
+            ||
+            // Delete my own text any time: the text is erased, the bubble stays as
+            // "This message was deleted".
+            (resource.data.type == 'text'
+              && resource.data.senderId == request.auth.uid
+              && resource.data.get('deleted', false) == false
+              && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['text', 'deleted', 'deletedAt'])
+              && request.resource.data.text == ''
+              && request.resource.data.deleted == true
+              && request.resource.data.deletedAt == request.time)
+            ||
+            // React (or un-react) to any message that isn't deleted.
+            (resource.data.get('deleted', false) == false
+              && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['reactions'])
+              && reactionOk())
+          );
 
+        allow delete: if false;
+      }
+
+      // "… is typing": one tiny doc per person, refreshed every few seconds.
+      match /typing/{userId} {
+        allow read: if isParticipant(convId);
+        allow create, update: if isParticipant(convId)
+          && userId == request.auth.uid
+          && request.resource.data.keys().hasOnly(['at'])
+          && request.resource.data.at == request.time;
         allow delete: if false;
       }
     }

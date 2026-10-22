@@ -1143,8 +1143,8 @@ async function main() {
     await assertSucceeds(updateDoc(doc(asSeller(), CONV), { sellerReadAt: serverTimestamp() }));
   });
 
-  // 125-126. Messages are never edited or deleted.
-  await run("125. edit a text message -> Deny", async () => {
+  // 125-126. A bare edit (no editedAt) and a hard delete are refused (15c adds proper edit/soft-delete).
+  await run("125. edit a text message without editedAt -> Deny", async () => {
     await assertFails(updateDoc(doc(asBuyer(), `${CONV}/messages/m1`), { text: "changed" }));
   });
   await run("126. delete a message -> Deny", async () => {
@@ -1225,6 +1225,131 @@ async function main() {
     await assertFails(setDoc(doc(asSeller(), "publicProfiles/approved-user"), {
       name: "Test", photo: "", updatedAt: new Date(), email: "x@y.z",
     }));
+  });
+
+  // ---- Chat upgrades (stage 15c): edit, delete, reply, reactions, offers, typing ----
+  // Reuses CONV from 105-138: m1 = buyer's text (sent this run), m2 = seller's text.
+  await testEnv.withSecurityRulesDisabled(async (context) => {
+    await setDoc(doc(context.firestore(), `${CONV}/messages/m-old`), {
+      senderId: "other-approved-user", type: "text", text: "old",
+      createdAt: new Date(Date.now() - 20 * 60 * 1000),
+    });
+  });
+  const offerMsg = (senderId, overrides = {}) => ({
+    senderId, type: "offer", amount: 8000, status: "pending", createdAt: serverTimestamp(), ...overrides,
+  });
+
+  // 139-142. Editing.
+  await run("139. sender edits own text within 15 min -> Allow", async () => {
+    await assertSucceeds(updateDoc(doc(asBuyer(), `${CONV}/messages/m1`),
+      { text: "Is it still available? (edited)", editedAt: serverTimestamp() }));
+  });
+  await run("140. other participant edits my text -> Deny", async () => {
+    await assertFails(updateDoc(doc(asSeller(), `${CONV}/messages/m1`),
+      { text: "changed", editedAt: serverTimestamp() }));
+  });
+  await run("141. edit after 15 minutes -> Deny", async () => {
+    await assertFails(updateDoc(doc(asBuyer(), `${CONV}/messages/m-old`),
+      { text: "too late", editedAt: serverTimestamp() }));
+  });
+  await run("142. edit with a client-side editedAt -> Deny", async () => {
+    await assertFails(updateDoc(doc(asBuyer(), `${CONV}/messages/m1`),
+      { text: "x", editedAt: new Date() }));
+  });
+
+  // 143-146. Deleting (text erased, bubble stays).
+  await run("143. sender deletes own message -> Allow", async () => {
+    await assertSucceeds(updateDoc(doc(asSeller(), `${CONV}/messages/m2`),
+      { text: "", deleted: true, deletedAt: serverTimestamp() }));
+  });
+  await run("144. participant deletes the other person's message -> Deny", async () => {
+    await assertFails(updateDoc(doc(asSeller(), `${CONV}/messages/m1`),
+      { text: "", deleted: true, deletedAt: serverTimestamp() }));
+  });
+  await run("145. edit a deleted message -> Deny", async () => {
+    await assertFails(updateDoc(doc(asSeller(), `${CONV}/messages/m2`),
+      { text: "back again", editedAt: serverTimestamp() }));
+  });
+  await run("146. 'delete' that keeps the text -> Deny", async () => {
+    await assertFails(updateDoc(doc(asBuyer(), `${CONV}/messages/m-old`),
+      { text: "old", deleted: true, deletedAt: serverTimestamp() }));
+  });
+
+  // 147-148. Replies.
+  await run("147. reply quoting an earlier message -> Allow", async () => {
+    await assertSucceeds(setDoc(doc(asSeller(), `${CONV}/messages/r1`), {
+      ...textMsg("approved-user", "Yes, still available"),
+      replyTo: { id: "m1", senderId: "other-approved-user", text: "Is it still available?" },
+    }));
+  });
+  await run("148. reply with an extra field in replyTo -> Deny", async () => {
+    await assertFails(setDoc(doc(asSeller(), `${CONV}/messages/r2`), {
+      ...textMsg("approved-user", "hi"),
+      replyTo: { id: "m1", senderId: "other-approved-user", text: "x", photo: "y" },
+    }));
+  });
+
+  // 149-152. Reactions.
+  await run("149. react to a message -> Allow", async () => {
+    await assertSucceeds(updateDoc(doc(asSeller(), `${CONV}/messages/m1`),
+      { reactions: { "approved-user": "like" } }));
+  });
+  await run("150. change someone else's reaction -> Deny", async () => {
+    await assertFails(updateDoc(doc(asBuyer(), `${CONV}/messages/m1`),
+      { reactions: { "approved-user": "sad" } }));
+  });
+  await run("151. unknown reaction -> Deny", async () => {
+    await assertFails(updateDoc(doc(asBuyer(), `${CONV}/messages/m1`),
+      { reactions: { "approved-user": "like", "other-approved-user": "angry" } }));
+  });
+  await run("152. remove my own reaction -> Allow", async () => {
+    await assertSucceeds(updateDoc(doc(asSeller(), `${CONV}/messages/m1`), { reactions: {} }));
+  });
+
+  // 153-158. Offers.
+  await run("153. buyer makes an offer -> Allow", async () => {
+    await assertSucceeds(setDoc(doc(asBuyer(), `${CONV}/messages/o1`), offerMsg("other-approved-user")));
+  });
+  await run("154. offer of 0 -> Deny", async () => {
+    await assertFails(setDoc(doc(asBuyer(), `${CONV}/messages/oX1`), offerMsg("other-approved-user", { amount: 0 })));
+  });
+  await run("155. offer with a fraction -> Deny", async () => {
+    await assertFails(setDoc(doc(asBuyer(), `${CONV}/messages/oX2`), offerMsg("other-approved-user", { amount: 8000.5 })));
+  });
+  await run("156. offerer accepts own offer -> Deny", async () => {
+    await assertFails(updateDoc(doc(asBuyer(), `${CONV}/messages/o1`),
+      { status: "accepted", respondedAt: serverTimestamp() }));
+  });
+  await run("157. seller accepts the offer -> Allow", async () => {
+    await assertSucceeds(updateDoc(doc(asSeller(), `${CONV}/messages/o1`),
+      { status: "accepted", respondedAt: serverTimestamp() }));
+  });
+  await run("158. change an already-decided offer -> Deny", async () => {
+    await assertFails(updateDoc(doc(asSeller(), `${CONV}/messages/o1`),
+      { status: "declined", respondedAt: serverTimestamp() }));
+  });
+
+  // 159-160. Preview-only fix after editing/deleting my latest message.
+  // (Test 121 left lastSenderId = other-approved-user.)
+  await run("159. last sender fixes only the preview text -> Allow", async () => {
+    await assertSucceeds(updateDoc(doc(asBuyer(), CONV), { lastMessage: "This message was deleted" }));
+  });
+  await run("160. other person rewrites the preview -> Deny", async () => {
+    await assertFails(updateDoc(doc(asSeller(), CONV), { lastMessage: "something else" }));
+  });
+
+  // 161-164. Typing indicator.
+  await run("161. participant sets own typing time -> Allow", async () => {
+    await assertSucceeds(setDoc(doc(asBuyer(), `${CONV}/typing/other-approved-user`), { at: serverTimestamp() }));
+  });
+  await run("162. set the other person's typing doc -> Deny", async () => {
+    await assertFails(setDoc(doc(asBuyer(), `${CONV}/typing/approved-user`), { at: serverTimestamp() }));
+  });
+  await run("163. outsider sets typing in someone's chat -> Deny", async () => {
+    await assertFails(setDoc(doc(asOutsider(), `${CONV}/typing/third-user`), { at: serverTimestamp() }));
+  });
+  await run("164. participant reads the other's typing -> Allow", async () => {
+    await assertSucceeds(getDoc(doc(asSeller(), `${CONV}/typing/other-approved-user`)));
   });
 
   await testEnv.cleanup();
