@@ -1,4 +1,4 @@
-import { collection, doc, getDoc, serverTimestamp, setDoc, updateDoc, writeBatch } from "firebase/firestore";
+import { collection, deleteField, doc, getDoc, serverTimestamp, setDoc, updateDoc, writeBatch } from "firebase/firestore";
 import { db } from "../services/firebase";
 
 // Chat (stage 15). One conversation per item + buyer; firestore.rules checks
@@ -36,17 +36,28 @@ export async function openConversation({ item, itemType, buyerUid }) {
   return id;
 }
 
+const toPreview = (t) => t.replace(/\s+/g, " ").slice(0, PREVIEW_MAX);
+
 // Sends a text message and updates the inbox preview in ONE batch, so the
 // preview never says something the thread doesn't contain.
-export async function sendText({ conv, uid, text }) {
+// replyTo (optional): the message being answered { id, senderId, text }.
+export async function sendText({ conv, uid, text, replyTo = null }) {
   const clean = text.trim().slice(0, MESSAGE_MAX);
   if (!clean) return;
   const convRef = doc(db, "conversations", conv.id);
   const msgRef = doc(collection(convRef, "messages"));
   const batch = writeBatch(db);
-  batch.set(msgRef, { senderId: uid, type: "text", text: clean, createdAt: serverTimestamp() });
+  const msg = { senderId: uid, type: "text", text: clean, createdAt: serverTimestamp() };
+  if (replyTo) {
+    msg.replyTo = {
+      id: replyTo.id,
+      senderId: replyTo.senderId,
+      text: toPreview(replyTo.deleted ? "" : replyTo.text || ""),
+    };
+  }
+  batch.set(msgRef, msg);
   batch.update(convRef, {
-    lastMessage: clean.replace(/\s+/g, " ").slice(0, PREVIEW_MAX),
+    lastMessage: toPreview(clean),
     lastSenderId: uid,
     updatedAt: serverTimestamp(),
     [readFieldFor(conv, uid)]: serverTimestamp(),
@@ -78,3 +89,65 @@ export const MEETING_SPOTS = [
   { key: "sports_centre", label: "Sports Centre" },
 ];
 export const spotLabel = (key) => MEETING_SPOTS.find((s) => s.key === key)?.label || "Campus";
+
+// Edits are allowed for 15 minutes after sending (firestore.rules, stage 15c).
+export const EDIT_WINDOW_MS = 15 * 60 * 1000;
+export const canEdit = (m, uid) =>
+  m.type === "text" && m.senderId === uid && !m.deleted && !!m.at && Date.now() - m.at.getTime() < EDIT_WINDOW_MS;
+
+// If the message I changed is the chat's latest (and mine), refresh ONLY the
+// inbox preview text, so it never shows something that's been edited/deleted.
+function previewFix(batch, conv, uid, isLatest, text) {
+  if (isLatest && conv.lastSenderId === uid) {
+    batch.update(doc(db, "conversations", conv.id), { lastMessage: toPreview(text) });
+  }
+}
+
+export async function editMessage({ conv, uid, msg, text, isLatest }) {
+  const clean = text.trim().slice(0, MESSAGE_MAX);
+  if (!clean) return;
+  const batch = writeBatch(db);
+  batch.update(doc(db, "conversations", conv.id, "messages", msg.id), { text: clean, editedAt: serverTimestamp() });
+  previewFix(batch, conv, uid, isLatest, clean);
+  await batch.commit();
+}
+
+// "Delete for everyone": the text is erased; the bubble stays as a placeholder.
+export async function deleteMessage({ conv, uid, msg, isLatest }) {
+  const batch = writeBatch(db);
+  batch.update(doc(db, "conversations", conv.id, "messages", msg.id), {
+    text: "",
+    deleted: true,
+    deletedAt: serverTimestamp(),
+  });
+  previewFix(batch, conv, uid, isLatest, "This message was deleted");
+  await batch.commit();
+}
+
+// Five reactions; each person has at most one per message.
+export const REACTIONS = [
+  { key: "like", emoji: "\u{1F44D}", label: "Like" },
+  { key: "love", emoji: "\u2764\uFE0F", label: "Love" },
+  { key: "laugh", emoji: "\u{1F602}", label: "Laugh" },
+  { key: "wow", emoji: "\u{1F62E}", label: "Wow" },
+  { key: "sad", emoji: "\u{1F622}", label: "Sad" },
+];
+export const reactionEmoji = (key) => REACTIONS.find((r) => r.key === key)?.emoji || "";
+
+// Pick the same reaction again to remove it.
+export async function setReaction({ convId, msgId, uid, current, next }) {
+  const ref = doc(db, "conversations", convId, "messages", msgId);
+  await updateDoc(ref, { [`reactions.${uid}`]: current === next ? deleteField() : next });
+}
+
+// Ready-made first messages, by role and item type.
+export function quickMessages({ isBuyer, isListing }) {
+  if (!isBuyer) {
+    return isListing
+      ? ["Yes, it's still available.", "Sorry, it's already sold.", "The price is fixed.", "When are you free to meet?"]
+      : ["Yes, I'm available.", "Sorry, I'm fully booked right now.", "The price is fixed.", "When suits you?"];
+  }
+  return isListing
+    ? ["Is this still available?", "Can we negotiate the price?", "Can you send more photos?", "When can we meet on campus?"]
+    : ["Are you available this week?", "What's included in the price?", "How long does it usually take?", "Can we discuss the price?"];
+}

@@ -4,20 +4,33 @@ import { onAuthStateChanged } from "firebase/auth";
 import { collection, doc, getDoc, limitToLast, onSnapshot, orderBy, query } from "firebase/firestore";
 import {
   HiOutlineArrowLeft,
+  HiOutlineArrowUturnLeft,
   HiOutlineCalendarDays,
+  HiOutlineCheck,
   HiOutlineExclamationTriangle,
+  HiOutlineFaceSmile,
   HiOutlineMapPin,
   HiOutlinePaperAirplane,
+  HiOutlinePencil,
   HiOutlineShieldCheck,
   HiOutlineShoppingBag,
+  HiOutlineTrash,
   HiOutlineWrenchScrewdriver,
+  HiOutlineXMark,
 } from "react-icons/hi2";
 import { auth, db } from "../services/firebase";
 import {
   MESSAGE_MAX,
+  REACTIONS,
+  canEdit,
+  deleteMessage,
+  editMessage,
   isConversationUnread,
   markConversationRead,
+  quickMessages,
+  reactionEmoji,
   sendText,
+  setReaction,
   spotLabel,
 } from "../utils/chat";
 
@@ -25,6 +38,7 @@ const inter = { fontFamily: "'Inter', sans-serif" };
 const formatKs = (n) => new Intl.NumberFormat("en-US").format(Number(n) || 0);
 const timeOfDay = (d) => (d ? d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "");
 const monthYear = (d) => (d ? d.toLocaleDateString([], { month: "short", year: "numeric" }) : "");
+const GROUP_GAP_MS = 5 * 60 * 1000;
 
 const dayLabel = (d) => {
   if (!d) return "Today";
@@ -38,8 +52,8 @@ const dayLabel = (d) => {
 
 const STATUS_TEXT = { active: "Available", sold: "Sold", paused: "Paused", removed: "Removed" };
 
-// One conversation about one item (stage 15b). Live messages, text only here;
-// meeting proposals are shown read-only until 15d adds the buttons.
+// One conversation about one item. Stage 15d: grouped bubbles, start-of-chat
+// item card, sold/removed banner, suggestions, reply, reactions, edit/delete.
 export default function Chat() {
   const { convId } = useParams();
   const navigate = useNavigate();
@@ -50,9 +64,21 @@ export default function Chat() {
   const [item, setItem] = useState(null);
   const [messages, setMessages] = useState([]);
   const [loadingMsgs, setLoadingMsgs] = useState(true);
+
   const [text, setText] = useState("");
   const [sending, setSending] = useState(false);
-  const [sendErr, setSendErr] = useState("");
+  const [notice, setNotice] = useState("");
+  const [replyTo, setReplyTo] = useState(null); // message being answered
+  const [editing, setEditing] = useState(null); // message being edited
+  const [showSuggestions, setShowSuggestions] = useState(false);
+  const [sheetFor, setSheetFor] = useState(null); // phone long-press menu
+  const [highlightId, setHighlightId] = useState(null);
+  // "Now", refreshed every 30 s, so Edit disappears when the 15-minute window ends.
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const t = setInterval(() => setNow(Date.now()), 30000);
+    return () => clearInterval(t);
+  }, []);
 
   const listRef = useRef(null);
   const nearBottom = useRef(true);
@@ -66,7 +92,6 @@ export default function Chat() {
     return () => unsub();
   }, [navigate]);
 
-  // The conversation itself (live: preview + read times).
   useEffect(() => {
     if (!uid) return;
     const unsub = onSnapshot(
@@ -86,7 +111,6 @@ export default function Chat() {
     return () => unsub();
   }, [uid, convId]);
 
-  // The other person and the item (once per conversation).
   const otherId = conv ? (conv.buyerId === uid ? conv.sellerId : conv.buyerId) : null;
   const itemKey = conv ? `${conv.itemType}/${conv.itemId}` : null;
   useEffect(() => {
@@ -95,23 +119,22 @@ export default function Chat() {
       .then((s) => setOther(s.exists() ? s.data() : {}))
       .catch(() => setOther({}));
   }, [otherId]);
+  // The item, live, so a "sold"/"removed" change shows up in the chat.
   useEffect(() => {
     if (!itemKey) return;
     const [type, id] = itemKey.split("/");
-    getDoc(doc(db, type === "listing" ? "listings" : "services", id))
-      .then((s) => setItem(s.exists() ? { id: s.id, ...s.data() } : { missing: true }))
-      .catch(() => setItem({ missing: true }));
+    const unsub = onSnapshot(
+      doc(db, type === "listing" ? "listings" : "services", id),
+      (s) => setItem(s.exists() ? { id: s.id, ...s.data() } : { missing: true }),
+      () => setItem({ missing: true })
+    );
+    return () => unsub();
   }, [itemKey]);
 
-  // Messages, live, oldest → newest.
   const isParticipant = !!conv;
   useEffect(() => {
     if (!isParticipant) return;
-    const q = query(
-      collection(db, "conversations", convId, "messages"),
-      orderBy("createdAt", "asc"),
-      limitToLast(300)
-    );
+    const q = query(collection(db, "conversations", convId, "messages"), orderBy("createdAt", "asc"), limitToLast(300));
     const unsub = onSnapshot(
       q,
       (snap) => {
@@ -131,7 +154,6 @@ export default function Chat() {
     return () => unsub();
   }, [isParticipant, convId]);
 
-  // Mark read whenever something new from the other person is on screen.
   useEffect(() => {
     if (!conv || !uid || !isConversationUnread(conv, uid)) return;
     const mark = () => {
@@ -144,7 +166,6 @@ export default function Chat() {
     return () => document.removeEventListener("visibilitychange", mark);
   }, [conv, uid]);
 
-  // Keep the newest message in view (unless the user scrolled up to read).
   useEffect(() => {
     const el = listRef.current;
     if (el && nearBottom.current) el.scrollTop = el.scrollHeight;
@@ -154,38 +175,126 @@ export default function Chat() {
     if (el) nearBottom.current = el.scrollHeight - el.scrollTop - el.clientHeight < 120;
   };
 
+  useEffect(() => {
+    if (!notice) return;
+    const t = setTimeout(() => setNotice(""), 3500);
+    return () => clearTimeout(t);
+  }, [notice]);
+
+  const latestId = messages.length ? messages[messages.length - 1].id : null;
   const trimmed = text.trim();
   const canSend = !!conv && trimmed.length > 0 && trimmed.length <= MESSAGE_MAX && !sending;
 
-  const handleSend = async (e) => {
-    e?.preventDefault();
-    if (!canSend) return;
+  const send = async (body) => {
+    const value = (body ?? text).trim();
+    if (!conv || !value || value.length > MESSAGE_MAX || sending) return;
     setSending(true);
-    setSendErr("");
     try {
       nearBottom.current = true;
-      await sendText({ conv, uid, text });
-      setText("");
+      if (editing && body === undefined) {
+        if (!canEdit(editing, uid)) {
+          setNotice("You can only edit a message for 15 minutes after sending it.");
+        } else {
+          await editMessage({ conv, uid, msg: editing, text: value, isLatest: editing.id === latestId });
+        }
+        setEditing(null);
+        setText("");
+      } else {
+        await sendText({ conv, uid, text: value, replyTo });
+        setReplyTo(null);
+        if (body === undefined) setText("");
+      }
+      setShowSuggestions(false);
       inputRef.current?.focus();
     } catch (err) {
       console.error("Send failed:", err);
-      setSendErr("Couldn't send. Check your connection and try again.");
+      setNotice("Couldn't send. Check your connection and try again.");
     } finally {
       setSending(false);
     }
   };
 
+  const onSubmit = (e) => {
+    e.preventDefault();
+    send();
+  };
   const onKeyDown = (e) => {
-    if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) handleSend(e);
+    if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
+      e.preventDefault();
+      send();
+    }
+    if (e.key === "Escape" && (editing || replyTo)) {
+      if (editing) setText("");
+      setEditing(null);
+      setReplyTo(null);
+    }
   };
 
-  // Group messages under day headings.
-  const groups = useMemo(() => {
+  const startReply = (m) => {
+    if (editing) setText("");
+    setEditing(null);
+    setReplyTo(m);
+    setSheetFor(null);
+    inputRef.current?.focus();
+  };
+  const startEdit = (m) => {
+    setSheetFor(null);
+    if (!canEdit(m, uid)) {
+      setNotice("You can only edit a message for 15 minutes after sending it.");
+      return;
+    }
+    setReplyTo(null);
+    setEditing(m);
+    setText(m.text);
+    inputRef.current?.focus();
+  };
+  const doDelete = async (m) => {
+    setSheetFor(null);
+    try {
+      await deleteMessage({ conv, uid, msg: m, isLatest: m.id === latestId });
+      if (editing?.id === m.id) {
+        setEditing(null);
+        setText("");
+      }
+    } catch (err) {
+      console.error("Delete failed:", err);
+      setNotice("Couldn't delete that message. Try again.");
+    }
+  };
+  const react = async (m, key) => {
+    setSheetFor(null);
+    try {
+      await setReaction({ convId: conv.id, msgId: m.id, uid, current: m.reactions?.[uid], next: key });
+    } catch (err) {
+      console.error("Reaction failed:", err);
+      setNotice("Couldn't add the reaction. Try again.");
+    }
+  };
+  const jumpTo = (id) => {
+    const el = document.getElementById(`msg-${id}`);
+    if (!el) return;
+    el.scrollIntoView({ behavior: "smooth", block: "center" });
+    setHighlightId(id);
+    setTimeout(() => setHighlightId((h) => (h === id ? null : h)), 1600);
+  };
+
+  // Day headings, and runs of text messages from one person a few minutes apart.
+  const days = useMemo(() => {
     const out = [];
+    let prev = null;
     for (const m of messages) {
       const label = dayLabel(m.at);
-      if (!out.length || out[out.length - 1].label !== label) out.push({ label, items: [] });
-      out[out.length - 1].items.push(m);
+      if (!out.length || out[out.length - 1].label !== label) {
+        out.push({ label, runs: [] });
+        prev = null;
+      }
+      const runs = out[out.length - 1].runs;
+      const joins =
+        prev && prev.senderId === m.senderId && m.type === "text" && prev.type === "text" &&
+        m.at && prev.at && m.at - prev.at < GROUP_GAP_MS;
+      if (joins) runs[runs.length - 1].items.push(m);
+      else runs.push({ senderId: m.senderId, items: [m] });
+      prev = m;
     }
     return out;
   }, [messages]);
@@ -206,13 +315,22 @@ export default function Chat() {
   }
 
   const isListing = conv?.itemType === "listing";
+  const isBuyer = conv?.buyerId === uid;
+  const noun = isListing ? "listing" : "service";
   const itemPath = conv ? `/${isListing ? "marketplace" : "services"}/${conv.itemId}` : "/dashboard";
   const otherName = other?.name?.trim() || "Student";
+  const otherFirst = otherName.split(" ")[0];
   const otherPhoto = /^https?:\/\//i.test(other?.photo || "") ? other.photo : "";
   const since = other?.memberSince?.toDate?.() ?? null;
-  const subline = [other?.department?.trim(), since ? `Member since ${monthYear(since)}` : ""].filter(Boolean).join(" · ");
-  const roleLabel = conv ? (conv.buyerId === uid ? (isListing ? "Seller" : "Provider") : "Interested") : "";
+  const subline =
+    [other?.department?.trim(), since ? `Member since ${monthYear(since)}` : ""].filter(Boolean).join(" · ") ||
+    (other ? "CampusHub member" : "");
+  const roleLabel = conv ? (isBuyer ? (isListing ? "Seller" : "Provider") : "Interested") : "";
   const itemPhoto = item?.photos?.[0] || "";
+  const itemTitle = item?.title || conv?.itemTitle || "";
+  const itemState = item?.missing ? "removed" : item?.status || "active";
+  const suggestions = conv ? quickMessages({ isBuyer, isListing }) : [];
+  const nameOf = (id) => (id === uid ? "You" : otherFirst);
 
   return (
     <Frame>
@@ -226,14 +344,8 @@ export default function Chat() {
         >
           <HiOutlineArrowLeft className="h-5 w-5" />
         </button>
-
         <div className="flex min-w-0 flex-1 items-center gap-3">
-          <span
-            className="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-full text-sm font-bold text-[#f4e6cd]"
-            style={{ background: "linear-gradient(135deg,#8f774b,#c9963f)" }}
-          >
-            {otherPhoto ? <img src={otherPhoto} alt="" className="h-full w-full object-cover" /> : otherName.charAt(0).toUpperCase()}
-          </span>
+          <Avatar name={otherName} photo={otherPhoto} size="h-10 w-10" />
           <div className="min-w-0">
             <div className="flex items-center gap-2">
               <h1 className="truncate text-base font-semibold text-white" style={inter}>{conv ? otherName : " "}</h1>
@@ -246,83 +358,156 @@ export default function Chat() {
             {subline && <p className="truncate text-xs text-white/40">{subline}</p>}
           </div>
         </div>
-
-        {/* Item chip */}
         {conv && (
           <Link
             to={itemPath}
             className="flex w-full min-w-0 items-center gap-2.5 rounded-xl border border-white/[0.08] bg-white/[0.04] p-1.5 pr-3 transition-colors hover:border-[#c9963f]/40 sm:w-auto sm:max-w-[300px]"
           >
-            <span className="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-lg bg-[#090704] text-white/25">
-              {itemPhoto ? (
-                <img src={itemPhoto} alt="" className="h-full w-full object-cover" />
-              ) : isListing ? (
-                <HiOutlineShoppingBag className="h-5 w-5" />
-              ) : (
-                <HiOutlineWrenchScrewdriver className="h-5 w-5" />
-              )}
-            </span>
+            <ItemThumb photo={itemPhoto} isListing={isListing} size="h-10 w-10" />
             <span className="min-w-0">
-              <span className="block truncate text-[13px] font-semibold text-white">{item?.title || conv.itemTitle}</span>
+              <span className="block truncate text-[13px] font-semibold text-white">{itemTitle}</span>
               <span className="block truncate text-[11px] text-white/45">
-                {item?.missing
-                  ? "No longer available"
-                  : item
-                  ? `Ks ${formatKs(item.price)} · ${STATUS_TEXT[item.status] || "Available"}`
-                  : "…"}
+                {item?.missing ? "No longer available" : item ? `Ks ${formatKs(item.price)} · ${STATUS_TEXT[item.status] || "Available"}` : "…"}
               </span>
             </span>
           </Link>
         )}
       </header>
 
-      {/* ── Safety note (wireframe ④) ── */}
+      {/* ── Safety note + item status ── */}
       <div className="flex items-start gap-2 border-b border-[#c9963f]/15 bg-[#c9963f]/[0.06] px-4 py-2 sm:px-6">
         <HiOutlineShieldCheck className="mt-0.5 h-4 w-4 shrink-0 text-[#d6bd97]" />
         <p className="text-xs leading-relaxed text-[#f4e6cd]/70">
           Meet in a public campus location during opening hours. Don't share your home address or pay in advance.
         </p>
       </div>
+      {conv && item && itemState !== "active" && (
+        <div className="border-b border-white/[0.07] bg-white/[0.03] px-4 py-2 text-center text-xs text-white/55 sm:px-6">
+          {itemState === "sold"
+            ? "This listing was marked sold. You can still message each other to wrap up."
+            : itemState === "paused"
+            ? "This service is paused for now."
+            : `This ${noun} was removed and is no longer visible to others.`}
+        </div>
+      )}
 
       {/* ── Messages ── */}
-      <div ref={listRef} onScroll={onScroll} className="ch-scroll min-h-0 flex-1 overflow-y-auto px-4 py-4 sm:px-6" aria-live="polite">
-        {!conv || loadingMsgs ? (
-          <div className="space-y-3">
-            {[60, 40, 70].map((w, i) => (
-              <div key={i} className={`flex ${i % 2 ? "justify-end" : ""}`}>
-                <div className="h-10 animate-pulse rounded-2xl bg-white/[0.05]" style={{ width: `${w}%` }} />
+      <div ref={listRef} onScroll={onScroll} className="ch-scroll min-h-0 flex-1 overflow-y-auto px-3 py-4 sm:px-6" aria-live="polite">
+        <div className="mx-auto flex max-w-3xl flex-col">
+          {conv && (
+            <div className="mx-auto mb-5 w-full max-w-sm rounded-2xl border border-white/[0.08] bg-white/[0.03] p-4 text-center">
+              <div className="mx-auto w-fit">
+                <ItemThumb photo={itemPhoto} isListing={isListing} size="h-20 w-20" rounded="rounded-xl" />
               </div>
-            ))}
-          </div>
-        ) : messages.length === 0 ? (
-          <div className="flex h-full flex-col items-center justify-center text-center">
-            <p className="text-sm font-semibold text-white/70">Say hello to {otherName.split(" ")[0]}</p>
-            <p className="mt-1 max-w-xs text-sm text-white/40">
-              Ask about the {isListing ? "item" : "service"}, the price, or when to meet.
-            </p>
-          </div>
-        ) : (
-          <div className="mx-auto flex max-w-3xl flex-col gap-1.5">
-            {groups.map((g) => (
-              <div key={g.label + g.items[0].id} className="flex flex-col gap-1.5">
-                <div className="my-2 flex items-center gap-3">
+              <p className="mt-3 truncate text-sm font-semibold text-white">{itemTitle}</p>
+              {item && !item.missing && <p className="mt-0.5 text-sm font-semibold text-[#d6bd97]">Ks {formatKs(item.price)}</p>}
+              <p className="mt-2 text-xs text-white/40">You're chatting with {otherFirst} about this {noun}.</p>
+            </div>
+          )}
+
+          {!conv || loadingMsgs ? (
+            <div className="space-y-3">
+              {[60, 40, 70].map((w, i) => (
+                <div key={i} className={`flex ${i % 2 ? "justify-end" : ""}`}>
+                  <div className="h-10 animate-pulse rounded-2xl bg-white/[0.05]" style={{ width: `${w}%` }} />
+                </div>
+              ))}
+            </div>
+          ) : messages.length === 0 ? (
+            <SuggestionList title={`Start the conversation with ${otherFirst}`} items={suggestions} onPick={(t) => send(t)} disabled={sending} />
+          ) : (
+            days.map((day) => (
+              <div key={day.label + day.runs[0].items[0].id} className="flex flex-col">
+                <div className="my-3 flex items-center gap-3">
                   <span className="h-px flex-1 bg-white/[0.07]" />
-                  <span className="text-[11px] font-semibold uppercase tracking-wider text-white/30">{g.label}</span>
+                  <span className="text-[11px] font-semibold uppercase tracking-wider text-white/30">{day.label}</span>
                   <span className="h-px flex-1 bg-white/[0.07]" />
                 </div>
-                {g.items.map((m) => (
-                  <Bubble key={m.id} m={m} mine={m.senderId === uid} />
-                ))}
+                {day.runs.map((run) => {
+                  const mine = run.senderId === uid;
+                  return (
+                    <div key={run.items[0].id} className={`mb-3 flex items-end gap-2 ${mine ? "justify-end" : ""}`}>
+                      {!mine && (
+                        <div className="w-7 shrink-0 pb-0.5">
+                          <Avatar name={otherName} photo={otherPhoto} size="h-7 w-7" text="text-[11px]" />
+                        </div>
+                      )}
+                      <div className={`flex min-w-0 max-w-[82%] flex-col gap-0.5 sm:max-w-[68%] ${mine ? "items-end" : "items-start"}`}>
+                        {run.items.map((m, i) => (
+                          <MessageRow
+                            key={m.id}
+                            m={m}
+                            uid={uid}
+                            now={now}
+                            mine={mine}
+                            first={i === 0}
+                            last={i === run.items.length - 1}
+                            highlighted={highlightId === m.id}
+                            nameOf={nameOf}
+                            onReply={() => startReply(m)}
+                            onEdit={() => startEdit(m)}
+                            onDelete={() => doDelete(m)}
+                            onReact={(k) => react(m, k)}
+                            onLongPress={() => !m.deleted && setSheetFor(m)}
+                            onJump={jumpTo}
+                          />
+                        ))}
+                      </div>
+                    </div>
+                  );
+                })}
               </div>
-            ))}
-          </div>
-        )}
+            ))
+          )}
+        </div>
       </div>
 
       {/* ── Composer ── */}
-      <form onSubmit={handleSend} className="border-t border-white/[0.07] bg-[#0f0c08]/90 px-3 py-3 backdrop-blur sm:px-6">
-        {sendErr && <p className="mb-2 text-xs text-red-300">{sendErr}</p>}
+      <form onSubmit={onSubmit} className="relative border-t border-white/[0.07] bg-[#0f0c08]/95 px-3 py-3 backdrop-blur sm:px-6">
+        {notice && <p className="mx-auto mb-2 max-w-3xl text-xs text-red-300">{notice}</p>}
+
+        {showSuggestions && messages.length > 0 && (
+          <div className="mx-auto mb-2 max-w-3xl">
+            <SuggestionList items={suggestions} onPick={(t) => send(t)} disabled={sending} compact />
+          </div>
+        )}
+
+        {(replyTo || editing) && (
+          <div className="mx-auto mb-2 flex max-w-3xl items-center gap-3 rounded-xl bg-white/[0.04] px-3 py-2">
+            <div className="min-w-0 flex-1">
+              <p className="text-[11px] font-semibold text-[#d6bd97]">
+                {editing ? "Editing message" : `Replying to ${replyTo.senderId === uid ? "yourself" : otherFirst}`}
+              </p>
+              <p className="truncate text-xs text-white/50">{(editing || replyTo).text}</p>
+            </div>
+            <button
+              type="button"
+              onClick={() => {
+                if (editing) setText("");
+                setEditing(null);
+                setReplyTo(null);
+              }}
+              aria-label="Cancel"
+              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-white/50 hover:bg-white/[0.06] hover:text-white"
+            >
+              <HiOutlineXMark className="h-4 w-4" />
+            </button>
+          </div>
+        )}
+
         <div className="mx-auto flex max-w-3xl items-end gap-2">
+          {messages.length > 0 && !editing && (
+            <button
+              type="button"
+              onClick={() => setShowSuggestions((v) => !v)}
+              aria-expanded={showSuggestions}
+              className={`h-11 shrink-0 rounded-xl px-2 text-xs font-semibold transition-colors ${
+                showSuggestions ? "text-[#d6bd97]" : "text-white/40 hover:text-white/70"
+              }`}
+            >
+              Suggestions
+            </button>
+          )}
           <label htmlFor="chat-input" className="sr-only">Message</label>
           <textarea
             id="chat-input"
@@ -331,21 +516,21 @@ export default function Chat() {
             value={text}
             onChange={(e) => setText(e.target.value.slice(0, MESSAGE_MAX + 50))}
             onKeyDown={onKeyDown}
-            placeholder="Write a message…"
+            placeholder={editing ? "Edit your message…" : "Write a message…"}
             disabled={!conv}
             className="ch-scroll max-h-32 min-h-[44px] flex-1 resize-none rounded-2xl border border-[#d6bd97]/20 bg-[#090704]/80 px-4 py-2.5 text-sm text-[#f4e6cd] outline-none transition placeholder:text-white/30 focus:border-[#c9963f] focus:shadow-[0_0_0_4px_rgba(201,150,63,0.15)] [field-sizing:content]"
           />
           <button
             type="submit"
             disabled={!canSend}
-            aria-label="Send"
-            className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br from-[#8f774b] to-[#c9963f] text-[#f4e6cd] shadow-[0_8px_20px_rgba(143,119,75,0.35)] transition-all hover:-translate-y-0.5 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:translate-y-0"
+            aria-label={editing ? "Save edit" : "Send"}
+            className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br from-[#8f774b] to-[#c9963f] text-[#f4e6cd] transition-all hover:-translate-y-0.5 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:translate-y-0"
           >
-            <HiOutlinePaperAirplane className="h-5 w-5" />
+            {editing ? <HiOutlineCheck className="h-5 w-5" /> : <HiOutlinePaperAirplane className="h-5 w-5" />}
           </button>
         </div>
         <div className="mx-auto mt-1 flex max-w-3xl justify-between px-1 text-[10px] text-white/30">
-          <span className="hidden sm:inline">Enter to send · Shift+Enter for a new line</span>
+          <span className="hidden sm:inline">Enter to send · Shift+Enter for a new line · hover a message for options</span>
           {trimmed.length > MESSAGE_MAX - 200 && (
             <span className={trimmed.length > MESSAGE_MAX ? "text-red-300" : ""}>
               {trimmed.length}/{MESSAGE_MAX}
@@ -353,17 +538,28 @@ export default function Chat() {
           )}
         </div>
       </form>
+
+      {sheetFor && (
+        <ActionSheet
+          m={sheetFor}
+          uid={uid}
+          now={now}
+          onClose={() => setSheetFor(null)}
+          onReply={() => startReply(sheetFor)}
+          onEdit={() => startEdit(sheetFor)}
+          onDelete={() => doDelete(sheetFor)}
+          onReact={(k) => react(sheetFor, k)}
+        />
+      )}
     </Frame>
   );
 }
 
-// Full-height column inside the app shell (phones leave room for the tab bar).
+/* ─── Layout + small pieces ───────────────────────────────────── */
+
 function Frame({ children }) {
   return (
-    <div
-      className="relative flex h-[calc(100dvh-76px-env(safe-area-inset-bottom,0px))] flex-col bg-[#0d0b07] text-white md:h-[100dvh]"
-      style={inter}
-    >
+    <div className="relative flex h-[calc(100dvh-76px-env(safe-area-inset-bottom,0px))] flex-col bg-[#0d0b07] text-white md:h-[100dvh]" style={inter}>
       <div
         className="pointer-events-none absolute inset-0 opacity-60"
         style={{ background: "radial-gradient(600px 300px at 100% 0%, rgba(201,150,63,0.08), transparent 70%)" }}
@@ -374,37 +570,280 @@ function Frame({ children }) {
   );
 }
 
-function Bubble({ m, mine }) {
+function Avatar({ name, photo, size, text = "text-sm" }) {
+  return (
+    <span
+      className={`${size} ${text} flex shrink-0 items-center justify-center overflow-hidden rounded-full font-bold text-[#f4e6cd]`}
+      style={{ background: "linear-gradient(135deg,#8f774b,#c9963f)" }}
+    >
+      {photo ? <img src={photo} alt="" className="h-full w-full object-cover" /> : name.charAt(0).toUpperCase()}
+    </span>
+  );
+}
+
+function ItemThumb({ photo, isListing, size, rounded = "rounded-lg" }) {
+  return (
+    <span className={`${size} ${rounded} flex shrink-0 items-center justify-center overflow-hidden bg-[#090704] text-white/25`}>
+      {photo ? (
+        <img src={photo} alt="" className="h-full w-full object-cover" />
+      ) : isListing ? (
+        <HiOutlineShoppingBag className="h-5 w-5" />
+      ) : (
+        <HiOutlineWrenchScrewdriver className="h-5 w-5" />
+      )}
+    </span>
+  );
+}
+
+// Plain rows of ready-made messages. Tapping one sends it.
+function SuggestionList({ title, items, onPick, disabled, compact = false }) {
+  return (
+    <div className={compact ? "" : "mx-auto w-full max-w-sm"}>
+      {title && <p className="mb-2 text-center text-xs text-white/40">{title}</p>}
+      <ul className={`overflow-hidden rounded-2xl border border-white/[0.08] ${compact ? "bg-[#15110b]" : "bg-white/[0.02]"}`}>
+        {items.map((t, i) => (
+          <li key={t} className={i ? "border-t border-white/[0.06]" : ""}>
+            <button
+              type="button"
+              disabled={disabled}
+              onClick={() => onPick(t)}
+              className="w-full px-4 py-2.5 text-left text-sm text-[#f4e6cd]/85 transition-colors hover:bg-white/[0.05] disabled:opacity-50"
+            >
+              {t}
+            </button>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+// Reaction chips under a bubble; tapping your own removes it.
+function ReactionBadges({ reactions, uid, onToggle, mine }) {
+  const entries = Object.entries(reactions || {});
+  if (!entries.length) return null;
+  const counts = {};
+  for (const [, key] of entries) counts[key] = (counts[key] || 0) + 1;
+  const myKey = reactions?.[uid];
+  return (
+    <div className={`relative z-10 -mt-1.5 flex gap-1 px-1 ${mine ? "justify-end" : ""}`}>
+      {Object.entries(counts).map(([key, n]) => (
+        <button
+          key={key}
+          type="button"
+          onClick={() => key === myKey && onToggle(key)}
+          aria-label={key === myKey ? "Remove your reaction" : `${n} reaction`}
+          className={`flex h-6 items-center gap-1 rounded-full border px-1.5 text-xs ${
+            key === myKey ? "border-[#c9963f]/50 bg-[#2a2013]" : "border-white/10 bg-[#15110b]"
+          }`}
+        >
+          <span>{reactionEmoji(key)}</span>
+          {n > 1 && <span className="text-[10px] text-white/60">{n}</span>}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function MessageRow({ m, uid, now, mine, first, last, highlighted, nameOf, onReply, onEdit, onDelete, onReact, onLongPress, onJump }) {
+  const [reactOpen, setReactOpen] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const press = useRef(null);
+
+  const startPress = (e) => {
+    if (e.pointerType !== "touch") return;
+    press.current = setTimeout(onLongPress, 450);
+  };
+  const endPress = () => clearTimeout(press.current);
+
   if (m.type === "meeting") {
     const when = m.meetAt?.toDate?.();
     const status = { pending: "Waiting for a reply", accepted: "Accepted", declined: "Declined", cancelled: "Cancelled" }[m.status] || "";
     return (
-      <div className={`flex ${mine ? "justify-end" : ""}`}>
-        <div className="w-full max-w-[320px] rounded-2xl border border-[#c9963f]/30 bg-[#c9963f]/[0.07] p-3.5">
-          <p className="text-[11px] font-semibold uppercase tracking-wider text-[#d6bd97]">Meeting proposal</p>
-          <p className="mt-2 flex items-center gap-2 text-sm text-white">
-            <HiOutlineMapPin className="h-4 w-4 text-[#d6bd97]" /> {spotLabel(m.spot)}
-          </p>
-          <p className="mt-1 flex items-center gap-2 text-sm text-white/80">
-            <HiOutlineCalendarDays className="h-4 w-4 text-[#d6bd97]" />
-            {when ? when.toLocaleString([], { weekday: "short", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }) : ""}
-          </p>
-          <p className="mt-2 text-xs text-white/45">{status}</p>
-        </div>
+      <div id={`msg-${m.id}`} className="w-full max-w-[320px] rounded-2xl border border-[#c9963f]/30 bg-[#c9963f]/[0.07] p-3.5">
+        <p className="text-[11px] font-semibold uppercase tracking-wider text-[#d6bd97]">Meeting proposal</p>
+        <p className="mt-2 flex items-center gap-2 text-sm text-white">
+          <HiOutlineMapPin className="h-4 w-4 text-[#d6bd97]" /> {spotLabel(m.spot)}
+        </p>
+        <p className="mt-1 flex items-center gap-2 text-sm text-white/80">
+          <HiOutlineCalendarDays className="h-4 w-4 text-[#d6bd97]" />
+          {when ? when.toLocaleString([], { weekday: "short", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }) : ""}
+        </p>
+        <p className="mt-2 text-xs text-white/45">{status}</p>
       </div>
     );
   }
+  if (m.type !== "text") return null; // offers arrive in 15e
+
+  // Bubbles in one run touch with tighter corners on the sender's side.
+  const corners = mine
+    ? `rounded-2xl rounded-br-md ${first ? "" : "rounded-tr-md"}`
+    : `rounded-2xl rounded-bl-md ${first ? "" : "rounded-tl-md"}`;
+  const editable = mine && !m.deleted && !!m.at && now - m.at.getTime() < 15 * 60 * 1000;
+
   return (
-    <div className={`flex ${mine ? "justify-end" : ""}`}>
+    <div
+      id={`msg-${m.id}`}
+      className={`group relative flex max-w-full flex-col ${mine ? "items-end" : "items-start"}`}
+      onPointerDown={startPress}
+      onPointerUp={endPress}
+      onPointerLeave={() => {
+        endPress();
+        setReactOpen(false);
+        setConfirmDelete(false);
+      }}
+      onPointerCancel={endPress}
+    >
+      <div className={`flex max-w-full items-center gap-1.5 ${mine ? "flex-row-reverse" : ""}`}>
+        <div
+          className={`${corners} min-w-0 max-w-full select-text px-3.5 py-2 transition-shadow ${
+            m.deleted
+              ? "border border-white/[0.08] bg-transparent text-white/40"
+              : mine
+              ? "bg-gradient-to-br from-[#a8874f] to-[#c9963f] text-[#1a120a]"
+              : "border border-white/[0.08] bg-white/[0.06] text-[#f4e6cd]"
+          } ${highlighted ? "shadow-[0_0_0_2px_rgba(214,189,151,0.8)]" : ""}`}
+        >
+          {m.replyTo && !m.deleted && (
+            <button
+              type="button"
+              onClick={() => onJump(m.replyTo.id)}
+              className={`mb-1.5 block w-full rounded-lg px-2.5 py-1.5 text-left ${mine ? "bg-black/15" : "bg-white/[0.06]"}`}
+            >
+              <span className={`block text-[11px] font-semibold ${mine ? "text-[#1a120a]/75" : "text-[#d6bd97]"}`}>
+                {nameOf(m.replyTo.senderId)}
+              </span>
+              <span className={`block truncate text-xs ${mine ? "text-[#1a120a]/65" : "text-white/50"}`}>
+                {m.replyTo.text || "Deleted message"}
+              </span>
+            </button>
+          )}
+          {m.deleted ? (
+            <p className="text-[13px] italic">This message was deleted</p>
+          ) : (
+            <p className="whitespace-pre-wrap break-words text-[14px] leading-relaxed">{m.text}</p>
+          )}
+          {/* Time on the last bubble of a run; "edited" on any edited bubble. */}
+          {(last || (m.editedAt && !m.deleted)) && (
+            <p className={`mt-0.5 text-right text-[10px] ${mine && !m.deleted ? "text-[#1a120a]/55" : "text-white/35"}`}>
+              {m.editedAt && !m.deleted ? (last ? "edited · " : "edited") : ""}
+              {last ? timeOfDay(m.at) : ""}
+            </p>
+          )}
+        </div>
+
+        {/* Desktop: actions appear beside the bubble on hover / keyboard focus */}
+        {!m.deleted && (
+          <div className="relative hidden shrink-0 items-center gap-0.5 rounded-full border border-white/10 bg-[#15110b] p-0.5 opacity-0 transition-opacity focus-within:opacity-100 group-hover:opacity-100 md:flex">
+            <IconBtn label="Reply" onClick={onReply}><HiOutlineArrowUturnLeft className="h-3.5 w-3.5" /></IconBtn>
+            <IconBtn label="React" onClick={() => setReactOpen((v) => !v)}><HiOutlineFaceSmile className="h-3.5 w-3.5" /></IconBtn>
+            {editable && <IconBtn label="Edit" onClick={onEdit}><HiOutlinePencil className="h-3.5 w-3.5" /></IconBtn>}
+            {mine &&
+              (confirmDelete ? (
+                <span className="flex items-center gap-1 px-1">
+                  <button type="button" onClick={onDelete} className="rounded-full bg-red-500/80 px-2 py-0.5 text-[11px] font-semibold text-white">
+                    Delete
+                  </button>
+                  <button type="button" onClick={() => setConfirmDelete(false)} className="px-1 text-[11px] text-white/50">
+                    Keep
+                  </button>
+                </span>
+              ) : (
+                <IconBtn label="Delete" onClick={() => setConfirmDelete(true)}><HiOutlineTrash className="h-3.5 w-3.5" /></IconBtn>
+              ))}
+            {reactOpen && (
+              <div className={`absolute bottom-full z-20 mb-1 flex gap-0.5 rounded-full border border-white/10 bg-[#15110b] p-1 shadow-lg ${mine ? "right-0" : "left-0"}`}>
+                {REACTIONS.map((r) => (
+                  <button
+                    key={r.key}
+                    type="button"
+                    aria-label={r.label}
+                    onClick={() => {
+                      setReactOpen(false);
+                      onReact(r.key);
+                    }}
+                    className={`flex h-8 w-8 items-center justify-center rounded-full text-base transition-transform hover:scale-110 ${
+                      m.reactions?.[uid] === r.key ? "bg-[#c9963f]/20" : ""
+                    }`}
+                  >
+                    {r.emoji}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+      {!m.deleted && <ReactionBadges reactions={m.reactions} uid={uid} mine={mine} onToggle={onReact} />}
+    </div>
+  );
+}
+
+function IconBtn({ label, onClick, children }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-label={label}
+      title={label}
+      className="flex h-7 w-7 items-center justify-center rounded-full text-white/55 transition-colors hover:bg-white/[0.08] hover:text-white"
+    >
+      {children}
+    </button>
+  );
+}
+
+// Phone: press and hold a message.
+function ActionSheet({ m, uid, now, onClose, onReply, onEdit, onDelete, onReact }) {
+  const [confirm, setConfirm] = useState(false);
+  const mine = m.senderId === uid;
+  const editable = mine && m.type === "text" && !m.deleted && !!m.at && now - m.at.getTime() < 15 * 60 * 1000;
+  const row = "flex h-12 w-full items-center gap-3 rounded-xl px-3 text-left text-[15px] font-medium transition-colors";
+  return (
+    <div className="fixed inset-0 z-50" role="dialog" aria-modal="true" aria-label="Message actions">
+      <button type="button" aria-label="Close" onClick={onClose} className="absolute inset-0 bg-black/60" />
       <div
-        className={`max-w-[78%] rounded-2xl px-3.5 py-2 sm:max-w-[65%] ${
-          mine
-            ? "rounded-br-md bg-gradient-to-br from-[#a8874f] to-[#c9963f] text-[#1a120a]"
-            : "rounded-bl-md border border-white/[0.08] bg-white/[0.06] text-[#f4e6cd]"
-        }`}
+        className="absolute inset-x-0 bottom-0 rounded-t-[24px] border-t border-white/10 bg-[#15110b] px-4 pt-3"
+        style={{ paddingBottom: "calc(16px + env(safe-area-inset-bottom, 0px))" }}
       >
-        <p className="whitespace-pre-wrap break-words text-[14px] leading-relaxed">{m.text}</p>
-        <p className={`mt-0.5 text-right text-[10px] ${mine ? "text-[#1a120a]/55" : "text-white/35"}`}>{timeOfDay(m.at)}</p>
+        <div className="mx-auto mb-3 h-1 w-10 rounded-full bg-white/15" aria-hidden="true" />
+        {m.text && <p className="mb-3 line-clamp-2 px-1 text-sm text-white/50">{m.text}</p>}
+        <div className="mb-2 flex justify-between rounded-2xl bg-white/[0.04] p-1.5">
+          {REACTIONS.map((r) => (
+            <button
+              key={r.key}
+              type="button"
+              aria-label={r.label}
+              onClick={() => onReact(r.key)}
+              className={`flex h-11 w-11 items-center justify-center rounded-xl text-xl ${m.reactions?.[uid] === r.key ? "bg-[#c9963f]/20" : ""}`}
+            >
+              {r.emoji}
+            </button>
+          ))}
+        </div>
+        <button type="button" className={`${row} text-white/85 hover:bg-white/[0.06]`} onClick={onReply}>
+          <HiOutlineArrowUturnLeft className="h-5 w-5 text-[#d6bd97]" /> Reply
+        </button>
+        {editable && (
+          <button type="button" className={`${row} text-white/85 hover:bg-white/[0.06]`} onClick={onEdit}>
+            <HiOutlinePencil className="h-5 w-5 text-[#d6bd97]" /> Edit
+          </button>
+        )}
+        {mine && m.type === "text" &&
+          (confirm ? (
+            <div className="flex gap-2 pt-1">
+              <button type="button" onClick={onDelete} className="h-11 flex-1 rounded-xl bg-red-500/80 text-sm font-semibold text-white">
+                Delete for everyone
+              </button>
+              <button type="button" onClick={() => setConfirm(false)} className="h-11 flex-1 rounded-xl border border-white/10 text-sm font-semibold text-white/70">
+                Keep
+              </button>
+            </div>
+          ) : (
+            <button type="button" className={`${row} text-red-300 hover:bg-red-500/10`} onClick={() => setConfirm(true)}>
+              <HiOutlineTrash className="h-5 w-5" /> Delete
+            </button>
+          ))}
       </div>
     </div>
   );
