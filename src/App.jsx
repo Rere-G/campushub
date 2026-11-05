@@ -14,6 +14,7 @@ import CreateListing from "./pages/CreateListing";
 import Saved from "./pages/Saved";
 import MyListings from "./pages/MyListings";
 import Chat from "./pages/Chat";
+import Messages from "./pages/Messages";
 import Gate from "./components/Gate";
 
 export default function App() {
@@ -37,7 +38,9 @@ export default function App() {
         <Route path="/services/:id" element={<ServiceDetail />} />
         <Route path="/saved" element={<Saved />} />
         <Route path="/my-listings" element={<MyListings />} />
-        <Route path="/messages/:convId" element={<Chat />} />
+        <Route path="/messages" element={<Messages />}>
+          <Route path=":convId" element={<Chat />} />
+        </Route>
         <Route path="/Profile" element={<Profile />} />
         <Route path="/admin" element={<Admin />} />
       </Route>

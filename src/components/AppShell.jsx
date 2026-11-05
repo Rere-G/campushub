@@ -16,6 +16,7 @@ import {
   HiOutlineXMark,
 } from "react-icons/hi2";
 import { useActivity } from "../utils/activity";
+import { useConversations } from "../utils/conversations";
 
 const inter = { fontFamily: "'Inter', sans-serif" };
 const COLLAPSE_KEY = "ch.sidebar.collapsed";
@@ -60,6 +61,8 @@ export default function AppShell({ account, onLogout, loggingOut, children }) {
   const { items } = useActivity(account?.uid);
   const seenAt = data.activitySeenAt?.toDate?.() ?? null;
   const unread = items.filter((a) => !seenAt || (a.createdAt && a.createdAt > seenAt)).length;
+  // Chats with something I haven't read.
+  const { unreadCount: msgUnread } = useConversations(account?.uid);
 
   // Close menus whenever the page changes. Done during render (not in an
   // effect) by remembering which path the menus were opened on.
@@ -104,6 +107,7 @@ export default function AppShell({ account, onLogout, loggingOut, children }) {
         onToggle={toggleCollapsed}
         isAdmin={isAdmin}
         unread={unread}
+        msgUnread={msgUnread}
         name={name}
         photo={photo}
         postOpen={sidePostOpen}
@@ -119,6 +123,7 @@ export default function AppShell({ account, onLogout, loggingOut, children }) {
 
       <BottomBar
         unread={unread}
+        msgUnread={msgUnread}
         postOpen={barPostOpen}
         setPostOpen={setBarPostOpen}
         meOpen={meOpen}
@@ -210,13 +215,14 @@ function PostMenu({ onClose, className = "" }) {
 
 /* ─── Desktop sidebar ─────────────────────────────────────────── */
 
-function Sidebar({ collapsed, onToggle, isAdmin, unread, name, photo, postOpen, setPostOpen, onLogout, loggingOut }) {
+function Sidebar({ collapsed, onToggle, isAdmin, unread, msgUnread, name, photo, postOpen, setPostOpen, onLogout, loggingOut }) {
   const width = collapsed ? "w-[76px]" : "w-[244px]";
 
   const menu = [
     { to: "/dashboard", label: "Dashboard", icon: HiOutlineHome, badge: unread },
     { to: "/marketplace", label: "Marketplace", icon: HiOutlineShoppingBag },
     { to: "/services", label: "Services", icon: HiOutlineWrenchScrewdriver },
+    { to: "/messages", label: "Messages", icon: HiOutlineChatBubbleLeftRight, badge: msgUnread },
   ];
   const mine = [
     { to: "/my-listings", label: "My listings", icon: HiOutlineRectangleStack },
@@ -262,7 +268,6 @@ function Sidebar({ collapsed, onToggle, isAdmin, unread, name, photo, postOpen, 
         {menu.map((item) => (
           <SideLink key={item.to} item={item} collapsed={collapsed} />
         ))}
-        <SoonItem collapsed={collapsed} />
 
         <SectionLabel collapsed={collapsed} className="mt-4">My stuff</SectionLabel>
         {mine.map((item) => (
@@ -369,31 +374,9 @@ function SideLink({ item, collapsed }) {
   );
 }
 
-function SoonItem({ collapsed }) {
-  return (
-    <div
-      aria-disabled="true"
-      title={collapsed ? "Messages — coming soon" : undefined}
-      className={`flex h-11 cursor-not-allowed items-center gap-3 rounded-xl px-3 text-sm font-medium text-white/30 ${
-        collapsed ? "justify-center px-0" : ""
-      }`}
-    >
-      <HiOutlineChatBubbleLeftRight className="h-5 w-5 shrink-0" />
-      {!collapsed && (
-        <>
-          <span>Messages</span>
-          <span className="ml-auto rounded-md border border-white/10 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-white/35">
-            Soon
-          </span>
-        </>
-      )}
-    </div>
-  );
-}
-
 /* ─── Phone bottom bar ────────────────────────────────────────── */
 
-function BottomBar({ unread, postOpen, setPostOpen, meOpen, setMeOpen }) {
+function BottomBar({ unread, msgUnread, postOpen, setPostOpen, meOpen, setMeOpen }) {
   const tab = (isActive) =>
     `relative flex h-full flex-1 flex-col items-center justify-center gap-1 text-[10px] font-semibold uppercase tracking-wider transition-colors ${
       isActive ? "text-[#d6bd97]" : "text-white/45"
@@ -441,9 +424,12 @@ function BottomBar({ unread, postOpen, setPostOpen, meOpen, setMeOpen }) {
           )}
         </div>
 
-        <NavLink to="/services" className={({ isActive }) => tab(isActive)}>
-          <HiOutlineWrenchScrewdriver className="h-5 w-5" />
-          Services
+        <NavLink to="/messages" className={({ isActive }) => tab(isActive)}>
+          <span className="relative">
+            <HiOutlineChatBubbleLeftRight className="h-5 w-5" />
+            <Badge n={msgUnread} className="absolute -right-3 -top-2" />
+          </span>
+          Messages
         </NavLink>
         <button
           type="button"
@@ -500,12 +486,9 @@ function MeSheet({ name, photo, isAdmin, onClose, onLogout, loggingOut }) {
           <button type="button" className={row} onClick={() => go("/saved")}>
             <HiOutlineBookmark className="h-5 w-5 text-[#d6bd97]" /> Saved
           </button>
-          <div className={`${rowBase} cursor-not-allowed text-white/30`} aria-disabled="true">
-            <HiOutlineChatBubbleLeftRight className="h-5 w-5" /> Messages
-            <span className="ml-auto rounded-md border border-white/10 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-white/35">
-              Soon
-            </span>
-          </div>
+          <button type="button" className={row} onClick={() => go("/services")}>
+            <HiOutlineWrenchScrewdriver className="h-5 w-5 text-[#d6bd97]" /> Services
+          </button>
           <button type="button" className={row} onClick={() => go("/Profile")}>
             <HiOutlineUserCircle className="h-5 w-5 text-[#d6bd97]" /> Profile
           </button>

@@ -338,9 +338,9 @@ export default function Chat() {
       <header className="flex flex-wrap items-center gap-3 border-b border-white/[0.07] bg-[#0f0c08]/90 px-4 py-3 backdrop-blur sm:px-6">
         <button
           type="button"
-          onClick={() => (window.history.length > 1 ? navigate(-1) : navigate(itemPath))}
-          aria-label="Back"
-          className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl text-[#d6bd97] transition-colors hover:bg-white/[0.06]"
+          onClick={() => navigate("/messages")}
+          aria-label="Back to messages"
+          className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl text-[#d6bd97] transition-colors hover:bg-white/[0.06] md:hidden"
         >
           <HiOutlineArrowLeft className="h-5 w-5" />
         </button>
@@ -559,7 +559,7 @@ export default function Chat() {
 
 function Frame({ children }) {
   return (
-    <div className="relative flex h-[calc(100dvh-76px-env(safe-area-inset-bottom,0px))] flex-col bg-[#0d0b07] text-white md:h-[100dvh]" style={inter}>
+    <div className="relative flex h-full min-h-0 flex-1 flex-col bg-[#0d0b07] text-white" style={inter}>
       <div
         className="pointer-events-none absolute inset-0 opacity-60"
         style={{ background: "radial-gradient(600px 300px at 100% 0%, rgba(201,150,63,0.08), transparent 70%)" }}
