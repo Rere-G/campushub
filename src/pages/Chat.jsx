@@ -5,6 +5,7 @@ import { collection, doc, getDoc, limitToLast, onSnapshot, orderBy, query } from
 import {
   HiOutlineArrowLeft,
   HiOutlineArrowUturnLeft,
+  HiOutlineBanknotes,
   HiOutlineCalendarDays,
   HiOutlineCheck,
   HiOutlineExclamationTriangle,
@@ -21,14 +22,20 @@ import {
 import { auth, db } from "../services/firebase";
 import {
   MESSAGE_MAX,
+  OFFER_MAX,
   REACTIONS,
+  TYPING_PING_MS,
+  TYPING_SHOW_MS,
+  answerProposal,
   canEdit,
   deleteMessage,
   editMessage,
   isConversationUnread,
   markConversationRead,
+  pingTyping,
   quickMessages,
   reactionEmoji,
+  sendOffer,
   sendText,
   setReaction,
   spotLabel,
@@ -73,6 +80,11 @@ export default function Chat() {
   const [showSuggestions, setShowSuggestions] = useState(false);
   const [sheetFor, setSheetFor] = useState(null); // phone long-press menu
   const [highlightId, setHighlightId] = useState(null);
+  const [offerOpen, setOfferOpen] = useState(false);
+  const [offerAmount, setOfferAmount] = useState("");
+  const [otherTyping, setOtherTyping] = useState(false);
+  const lastPing = useRef(0);
+  const typingTimer = useRef(null);
   // "Now", refreshed every 30 s, so Edit disappears when the 15-minute window ends.
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
@@ -138,12 +150,16 @@ export default function Chat() {
     const unsub = onSnapshot(
       q,
       (snap) => {
-        setMessages(
-          snap.docs.map((d) => {
-            const x = d.data({ serverTimestamps: "estimate" });
-            return { id: d.id, ...x, at: x.createdAt?.toDate?.() ?? null };
-          })
-        );
+        const list = snap.docs.map((d) => {
+          const x = d.data({ serverTimestamps: "estimate" });
+          return { id: d.id, ...x, at: x.createdAt?.toDate?.() ?? null };
+        });
+        setMessages(list);
+        // Their message arrived, so they've stopped typing.
+        if (list.length && list[list.length - 1].senderId !== uid) {
+          clearTimeout(typingTimer.current);
+          setOtherTyping(false);
+        }
         setLoadingMsgs(false);
       },
       (err) => {
@@ -152,7 +168,39 @@ export default function Chat() {
       }
     );
     return () => unsub();
-  }, [isParticipant, convId]);
+  }, [isParticipant, convId, uid]);
+
+  // "… is typing": show for a few seconds after each of their pings.
+  // The first snapshot only counts if its ping is recent; later ones always do
+  // (so a clock difference between phones can't hide it).
+  useEffect(() => {
+    if (!isParticipant || !otherId) return;
+    let first = true;
+    const show = (ms) => {
+      clearTimeout(typingTimer.current);
+      setOtherTyping(true);
+      typingTimer.current = setTimeout(() => setOtherTyping(false), ms);
+    };
+    const unsub = onSnapshot(
+      doc(db, "conversations", convId, "typing", otherId),
+      (snap) => {
+        const at = snap.exists() ? snap.data({ serverTimestamps: "estimate" }).at?.toDate?.() : null;
+        if (at) {
+          if (!first) show(TYPING_SHOW_MS);
+          else {
+            const age = Date.now() - at.getTime();
+            if (age >= 0 && age < TYPING_SHOW_MS) show(TYPING_SHOW_MS - age);
+          }
+        }
+        first = false;
+      },
+      () => {}
+    );
+    return () => {
+      unsub();
+      clearTimeout(typingTimer.current);
+    };
+  }, [isParticipant, otherId, convId]);
 
   useEffect(() => {
     if (!conv || !uid || !isConversationUnread(conv, uid)) return;
@@ -169,7 +217,7 @@ export default function Chat() {
   useEffect(() => {
     const el = listRef.current;
     if (el && nearBottom.current) el.scrollTop = el.scrollHeight;
-  }, [messages]);
+  }, [messages, otherTyping]);
   const onScroll = () => {
     const el = listRef.current;
     if (el) nearBottom.current = el.scrollHeight - el.scrollTop - el.clientHeight < 120;
@@ -211,6 +259,46 @@ export default function Chat() {
       setNotice("Couldn't send. Check your connection and try again.");
     } finally {
       setSending(false);
+    }
+  };
+
+  const onTextChange = (e) => {
+    const value = e.target.value.slice(0, MESSAGE_MAX + 50);
+    setText(value);
+    if (conv && uid && value.trim() && !editing && Date.now() - lastPing.current > TYPING_PING_MS) {
+      lastPing.current = Date.now();
+      pingTyping({ convId: conv.id, uid }).catch(() => {});
+    }
+  };
+
+  const offerValue = Number(String(offerAmount).replace(/[^0-9]/g, ""));
+  const offerOk = Number.isInteger(offerValue) && offerValue >= 1 && offerValue <= OFFER_MAX;
+  const openOffer = () => {
+    setShowSuggestions(false);
+    setOfferAmount(item && !item.missing && item.price ? String(item.price) : "");
+    setOfferOpen((v) => !v);
+  };
+  const submitOffer = async () => {
+    if (!offerOk || sending) return;
+    setSending(true);
+    try {
+      nearBottom.current = true;
+      await sendOffer({ conv, uid, amount: offerValue });
+      setOfferOpen(false);
+      setOfferAmount("");
+    } catch (err) {
+      console.error("Offer failed:", err);
+      setNotice("Couldn't send the offer. Try again.");
+    } finally {
+      setSending(false);
+    }
+  };
+  const answer = async (m, status) => {
+    try {
+      await answerProposal({ convId: conv.id, msgId: m.id, status });
+    } catch (err) {
+      console.error("Answer failed:", err);
+      setNotice("Couldn't update that. It may already have been answered.");
     }
   };
 
@@ -331,6 +419,13 @@ export default function Chat() {
   const itemState = item?.missing ? "removed" : item?.status || "active";
   const suggestions = conv ? quickMessages({ isBuyer, isListing }) : [];
   const nameOf = (id) => (id === uid ? "You" : otherFirst);
+  // "Sent" / "Seen" under my message when it's the latest in the chat.
+  const latest = messages[messages.length - 1];
+  const otherReadAt = conv ? conv[conv.buyerId === uid ? "sellerReadAt" : "buyerReadAt"]?.toDate?.() ?? null : null;
+  const receiptFor =
+    latest && latest.senderId === uid && !latest.deleted
+      ? { id: latest.id, text: otherReadAt && latest.at && otherReadAt >= latest.at ? "Seen" : "Sent" }
+      : null;
 
   return (
     <Frame>
@@ -450,6 +545,8 @@ export default function Chat() {
                             onReact={(k) => react(m, k)}
                             onLongPress={() => !m.deleted && setSheetFor(m)}
                             onJump={jumpTo}
+                            onAnswer={(st) => answer(m, st)}
+                            receipt={receiptFor?.id === m.id ? receiptFor.text : ""}
                           />
                         ))}
                       </div>
@@ -458,6 +555,14 @@ export default function Chat() {
                 })}
               </div>
             ))
+          )}
+          {otherTyping && (
+            <div className="mb-2 flex items-center gap-2" aria-live="polite">
+              <Avatar name={otherName} photo={otherPhoto} size="h-7 w-7" text="text-[11px]" />
+              <span className="rounded-2xl rounded-bl-md border border-white/[0.08] bg-white/[0.04] px-3 py-1.5 text-xs italic text-white/50">
+                {otherFirst} is typing…
+              </span>
+            </div>
           )}
         </div>
       </div>
@@ -469,6 +574,40 @@ export default function Chat() {
         {showSuggestions && messages.length > 0 && (
           <div className="mx-auto mb-2 max-w-3xl">
             <SuggestionList items={suggestions} onPick={(t) => send(t)} disabled={sending} compact />
+          </div>
+        )}
+
+        {offerOpen && (
+          <div className="mx-auto mb-2 max-w-3xl rounded-2xl border border-white/[0.08] bg-[#15110b] p-3">
+            <div className="flex flex-wrap items-center gap-2">
+              <label htmlFor="offer-amount" className="text-sm font-semibold text-white/80">Your offer</label>
+              <div className="flex h-10 min-w-0 flex-1 items-center rounded-xl border border-[#d6bd97]/20 bg-[#090704]/80 px-3 focus-within:border-[#c9963f]">
+                <span className="mr-2 text-sm text-white/40">Ks</span>
+                <input
+                  id="offer-amount"
+                  inputMode="numeric"
+                  value={offerAmount ? Number(String(offerAmount).replace(/[^0-9]/g, "") || 0).toLocaleString("en-US") : ""}
+                  onChange={(e) => setOfferAmount(e.target.value.replace(/[^0-9]/g, "").slice(0, 9))}
+                  onKeyDown={(e) => e.key === "Enter" && (e.preventDefault(), submitOffer())}
+                  placeholder="0"
+                  className="min-w-0 flex-1 bg-transparent text-sm text-[#f4e6cd] outline-none"
+                />
+              </div>
+              <button
+                type="button"
+                onClick={submitOffer}
+                disabled={!offerOk || sending}
+                className="h-10 rounded-xl bg-gradient-to-r from-[#8f774b] to-[#c9963f] px-4 text-sm font-semibold text-[#f4e6cd] disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                Send offer
+              </button>
+              <button type="button" onClick={() => setOfferOpen(false)} className="h-10 px-2 text-sm text-white/50 hover:text-white">
+                Cancel
+              </button>
+            </div>
+            {item && !item.missing && item.price ? (
+              <p className="mt-2 text-xs text-white/40">Asking price: Ks {formatKs(item.price)}</p>
+            ) : null}
           </div>
         )}
 
@@ -496,10 +635,25 @@ export default function Chat() {
         )}
 
         <div className="mx-auto flex max-w-3xl items-end gap-2">
+          {!editing && conv && (
+            <button
+              type="button"
+              onClick={openOffer}
+              aria-expanded={offerOpen}
+              className={`h-11 shrink-0 rounded-xl px-2 text-xs font-semibold transition-colors ${
+                offerOpen ? "text-[#d6bd97]" : "text-white/40 hover:text-white/70"
+              }`}
+            >
+              Offer
+            </button>
+          )}
           {messages.length > 0 && !editing && (
             <button
               type="button"
-              onClick={() => setShowSuggestions((v) => !v)}
+              onClick={() => {
+                setOfferOpen(false);
+                setShowSuggestions((v) => !v);
+              }}
               aria-expanded={showSuggestions}
               className={`h-11 shrink-0 rounded-xl px-2 text-xs font-semibold transition-colors ${
                 showSuggestions ? "text-[#d6bd97]" : "text-white/40 hover:text-white/70"
@@ -514,7 +668,7 @@ export default function Chat() {
             ref={inputRef}
             rows={1}
             value={text}
-            onChange={(e) => setText(e.target.value.slice(0, MESSAGE_MAX + 50))}
+            onChange={onTextChange}
             onKeyDown={onKeyDown}
             placeholder={editing ? "Edit your message…" : "Write a message…"}
             disabled={!conv}
@@ -645,7 +799,7 @@ function ReactionBadges({ reactions, uid, onToggle, mine }) {
   );
 }
 
-function MessageRow({ m, uid, now, mine, first, last, highlighted, nameOf, onReply, onEdit, onDelete, onReact, onLongPress, onJump }) {
+function MessageRow({ m, uid, now, mine, first, last, highlighted, nameOf, onReply, onEdit, onDelete, onReact, onLongPress, onJump, onAnswer, receipt }) {
   const [reactOpen, setReactOpen] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const press = useRef(null);
@@ -673,7 +827,10 @@ function MessageRow({ m, uid, now, mine, first, last, highlighted, nameOf, onRep
       </div>
     );
   }
-  if (m.type !== "text") return null; // offers arrive in 15e
+  if (m.type === "offer") {
+    return <OfferCard m={m} mine={mine} nameOf={nameOf} onAnswer={onAnswer} receipt={receipt} />;
+  }
+  if (m.type !== "text") return null;
 
   // Bubbles in one run touch with tighter corners on the sender's side.
   const corners = mine
@@ -775,6 +932,62 @@ function MessageRow({ m, uid, now, mine, first, last, highlighted, nameOf, onRep
         )}
       </div>
       {!m.deleted && <ReactionBadges reactions={m.reactions} uid={uid} mine={mine} onToggle={onReact} />}
+      {receipt && <p className="mt-0.5 px-1 text-[10px] text-white/35">{receipt}</p>}
+    </div>
+  );
+}
+
+// Price offer card. The other person accepts/declines; the sender may cancel.
+function OfferCard({ m, mine, nameOf, onAnswer, receipt }) {
+  const [busy, setBusy] = useState(false);
+  const act = async (status) => {
+    setBusy(true);
+    await onAnswer(status);
+    setBusy(false);
+  };
+  const amount = `Ks ${formatKs(m.amount)}`;
+  const statusText = {
+    pending: mine ? "Waiting for a reply" : `${nameOf(m.senderId)} made an offer`,
+    accepted: "Accepted",
+    declined: "Declined",
+    cancelled: "Cancelled",
+  }[m.status] || "";
+  const btn = "h-9 flex-1 rounded-xl text-sm font-semibold transition-colors disabled:opacity-50";
+  return (
+    <div id={`msg-${m.id}`} className={`flex flex-col ${mine ? "items-end" : "items-start"}`}>
+      <div className={`w-[260px] max-w-full rounded-2xl border p-3.5 ${
+        m.status === "accepted" ? "border-emerald-400/30 bg-emerald-500/[0.06]" : "border-[#c9963f]/30 bg-[#c9963f]/[0.07]"
+      }`}>
+        <p className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider text-[#d6bd97]">
+          <HiOutlineBanknotes className="h-4 w-4" /> Offer
+        </p>
+        <p className={`mt-1.5 text-xl font-bold ${m.status === "declined" || m.status === "cancelled" ? "text-white/40 line-through" : "text-white"}`}>
+          {amount}
+        </p>
+        <p className={`mt-1 text-xs ${m.status === "accepted" ? "text-emerald-300" : "text-white/45"}`}>{statusText}</p>
+        {m.status === "accepted" && (
+          <p className="mt-2 text-xs leading-relaxed text-white/60">Agreed at {amount}. Arrange a meetup to complete the deal.</p>
+        )}
+        {m.status === "pending" && (
+          <div className="mt-3 flex gap-2">
+            {mine ? (
+              <button type="button" disabled={busy} onClick={() => act("cancelled")} className={`${btn} border border-white/10 text-white/70 hover:bg-white/[0.06]`}>
+                Cancel offer
+              </button>
+            ) : (
+              <>
+                <button type="button" disabled={busy} onClick={() => act("accepted")} className={`${btn} bg-gradient-to-r from-[#8f774b] to-[#c9963f] text-[#f4e6cd]`}>
+                  Accept
+                </button>
+                <button type="button" disabled={busy} onClick={() => act("declined")} className={`${btn} border border-white/10 text-white/70 hover:bg-white/[0.06]`}>
+                  Decline
+                </button>
+              </>
+            )}
+          </div>
+        )}
+      </div>
+      {receipt && <p className="mt-0.5 px-1 text-[10px] text-white/35">{receipt}</p>}
     </div>
   );
 }

@@ -151,3 +151,40 @@ export function quickMessages({ isBuyer, isListing }) {
     ? ["Is this still available?", "Can we negotiate the price?", "Can you send more photos?", "When can we meet on campus?"]
     : ["Are you available this week?", "What's included in the price?", "How long does it usually take?", "Can we discuss the price?"];
 }
+
+// ---- Stage 15f: offers, typing ----
+export const OFFER_MAX = 100000000;
+export const formatKs = (n) => new Intl.NumberFormat("en-US").format(Number(n) || 0);
+
+// A price offer in whole Kyat. Same batch pattern as sendText.
+export async function sendOffer({ conv, uid, amount }) {
+  const value = Math.round(Number(amount));
+  if (!Number.isInteger(value) || value < 1 || value > OFFER_MAX) throw new Error("bad amount");
+  const convRef = doc(db, "conversations", conv.id);
+  const msgRef = doc(collection(convRef, "messages"));
+  const batch = writeBatch(db);
+  batch.set(msgRef, { senderId: uid, type: "offer", amount: value, status: "pending", createdAt: serverTimestamp() });
+  batch.update(convRef, {
+    lastMessage: `Offer: Ks ${formatKs(value)}`,
+    lastSenderId: uid,
+    updatedAt: serverTimestamp(),
+    [readFieldFor(conv, uid)]: serverTimestamp(),
+  });
+  await batch.commit();
+}
+
+// Accept / decline (the other person) or cancel (the sender) a pending
+// offer or meeting proposal. firestore.rules enforces who may do which.
+export async function answerProposal({ convId, msgId, status }) {
+  await updateDoc(doc(db, "conversations", convId, "messages", msgId), {
+    status,
+    respondedAt: serverTimestamp(),
+  });
+}
+
+// "I'm typing" — the caller throttles this to once every few seconds.
+export async function pingTyping({ convId, uid }) {
+  await setDoc(doc(db, "conversations", convId, "typing", uid), { at: serverTimestamp() });
+}
+export const TYPING_PING_MS = 3000;
+export const TYPING_SHOW_MS = 6000;
