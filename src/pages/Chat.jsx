@@ -8,6 +8,8 @@ import {
   HiOutlineBanknotes,
   HiOutlineCalendarDays,
   HiOutlineCheck,
+  HiOutlineEllipsisVertical,
+  HiOutlineFlag,
   HiOutlineExclamationTriangle,
   HiOutlineFaceSmile,
   HiOutlineMapPin,
@@ -21,6 +23,8 @@ import {
   HiOutlineXMark,
 } from "react-icons/hi2";
 import { auth, db } from "../services/firebase";
+import { ReportDialog } from "../components/ReportButton";
+import { hasReportedChat, submitChatReport } from "../utils/reports";
 import {
   MEETING_SPOTS,
   MEET_MAX_DAYS,
@@ -93,6 +97,9 @@ export default function Chat() {
   const [meetDate, setMeetDate] = useState("");
   const [meetTime, setMeetTime] = useState("14:00");
   const [moreOpen, setMoreOpen] = useState(false); // phone "+" menu
+  const [headerMenu, setHeaderMenu] = useState(false);
+  const [reportOpen, setReportOpen] = useState(false);
+  const [reported, setReported] = useState(false);
   const lastPing = useRef(0);
   const typingTimer = useRef(null);
   // "Now", refreshed every 30 s, so Edit disappears when the 15-minute window ends.
@@ -233,6 +240,19 @@ export default function Chat() {
     if (el) nearBottom.current = el.scrollHeight - el.scrollTop - el.clientHeight < 120;
   };
 
+  // Have I already reported this chat? (one report per chat per person)
+  const convIdForReport = conv?.id;
+  useEffect(() => {
+    if (!uid || !convIdForReport) return;
+    let alive = true;
+    hasReportedChat(uid, convIdForReport)
+      .then((r) => alive && setReported(r))
+      .catch(() => {});
+    return () => {
+      alive = false;
+    };
+  }, [uid, convIdForReport]);
+
   useEffect(() => {
     if (!notice) return;
     const t = setTimeout(() => setNotice(""), 3500);
@@ -355,6 +375,40 @@ export default function Chat() {
     } catch (err) {
       console.error("Answer failed:", err);
       setNotice("Couldn't update that. It may already have been answered.");
+    }
+  };
+
+  // The report copies the other person's latest live text message.
+  const reportTarget = [...messages].reverse().find((m) => m.senderId !== uid && m.type === "text" && !m.deleted) || null;
+  const openReport = () => {
+    setHeaderMenu(false);
+    if (reported) return;
+    if (!reportTarget) {
+      setNotice("There's no message from them to report yet.");
+      return;
+    }
+    setReportOpen(true);
+  };
+  const submitReportNow = async (reason, note) => {
+    try {
+      await submitChatReport({ uid, conv, msg: reportTarget, reason, note });
+      setReported(true);
+      setReportOpen(false);
+      setNotice("Thanks. An admin will review this chat.");
+      return null;
+    } catch (err) {
+      console.error("Chat report failed:", err);
+      try {
+        if (await hasReportedChat(uid, conv.id)) {
+          setReported(true);
+          setReportOpen(false);
+          setNotice("You've already reported this chat.");
+          return null;
+        }
+      } catch {
+        /* fall through */
+      }
+      return "Couldn't send your report. If they just deleted that message, try again.";
     }
   };
 
@@ -509,6 +563,37 @@ export default function Chat() {
             {subline && <p className="truncate text-xs text-white/40">{subline}</p>}
           </div>
         </div>
+        {conv && (
+          <div className="relative">
+            <button
+              type="button"
+              onClick={() => setHeaderMenu((v) => !v)}
+              aria-label="Chat options"
+              aria-haspopup="menu"
+              aria-expanded={headerMenu}
+              className="flex h-10 w-10 items-center justify-center rounded-xl text-white/50 transition-colors hover:bg-white/[0.06] hover:text-white"
+            >
+              <HiOutlineEllipsisVertical className="h-5 w-5" />
+            </button>
+            {headerMenu && (
+              <>
+                <button type="button" aria-label="Close menu" className="fixed inset-0 z-30 cursor-default" onClick={() => setHeaderMenu(false)} />
+                <div role="menu" className="absolute right-0 top-full z-40 mt-1 w-56 overflow-hidden rounded-xl border border-white/10 bg-[#15110b] shadow-[0_20px_50px_rgba(0,0,0,0.6)]">
+                  <button
+                    type="button"
+                    role="menuitem"
+                    onClick={openReport}
+                    disabled={reported}
+                    className="flex w-full items-center gap-2.5 px-3.5 py-3 text-left text-sm text-red-300 transition-colors hover:bg-red-500/10 disabled:cursor-default disabled:text-white/40 disabled:hover:bg-transparent"
+                  >
+                    <HiOutlineFlag className="h-4 w-4" />
+                    {reported ? "You reported this chat" : "Report this chat"}
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+        )}
         {conv && (
           <Link
             to={itemPath}
@@ -867,6 +952,16 @@ export default function Chat() {
         </div>
       </form>
 
+      {reportOpen && reportTarget && (
+        <ReportDialog
+          noun="chat"
+          subtitle={`Only CampusHub admins see reports, and they can then read this chat. ${otherFirst} isn't told who reported it.`}
+          preview={{ label: `Latest message from ${otherFirst}`, text: reportTarget.text }}
+          onClose={() => setReportOpen(false)}
+          onSubmit={submitReportNow}
+        />
+      )}
+
       {sheetFor && (
         <ActionSheet
           m={sheetFor}
@@ -1036,7 +1131,7 @@ function MessageRow({ m, uid, now, mine, first, last, highlighted, nameOf, onRep
             </button>
           )}
           {m.deleted ? (
-            <p className="text-[13px] italic">This message was deleted</p>
+            <p className="text-[13px] italic">{m.removedByAdmin ? "This message was removed by a moderator" : "This message was deleted"}</p>
           ) : (
             <p className="whitespace-pre-wrap break-words text-[14px] leading-relaxed">{m.text}</p>
           )}

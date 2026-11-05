@@ -5,12 +5,14 @@ import { REPORT_NOTE_MAX, REPORT_REASONS, hasReported, submitReport } from "../u
 
 const inter = { fontFamily: "'Inter', sans-serif" };
 
-const NOUN = { listing: "listing", service: "service", comment: "comment" };
+const NOUN = { listing: "listing", service: "service", comment: "comment", message: "chat" };
 
 // The pop-up form. Rendered through a portal into document.body so no
 // parent card's overflow-hidden can clip it. Defined at module scope so it
-// never remounts when the page re-renders.
-function ReportDialog({ noun, onClose, onSubmit }) {
+// never remounts when the page re-renders. Also used by the chat page
+// (stage 15h): `preview` shows the message being reported, `subtitle`
+// replaces the default privacy line.
+export function ReportDialog({ noun, onClose, onSubmit, preview = null, subtitle = "" }) {
   const [reason, setReason] = useState("");
   const [note, setNote] = useState("");
   const [sending, setSending] = useState(false);
@@ -67,7 +69,7 @@ function ReportDialog({ noun, onClose, onSubmit }) {
               Report this {noun}
             </h2>
             <p className="mt-1 text-xs leading-relaxed text-[#f4e6cd]/50">
-              Only CampusHub admins see reports. The poster isn't told who reported them.
+              {subtitle || "Only CampusHub admins see reports. The poster isn't told who reported them."}
             </p>
           </div>
           <button
@@ -80,6 +82,13 @@ function ReportDialog({ noun, onClose, onSubmit }) {
             <HiOutlineXMark className="h-5 w-5" />
           </button>
         </div>
+
+        {preview && (
+          <div className="mt-4 rounded-xl border border-white/10 bg-black/25 px-3.5 py-2.5">
+            <p className="text-[11px] font-semibold uppercase tracking-wider text-[#d6bd97]/80">{preview.label}</p>
+            <p className="mt-1 line-clamp-3 whitespace-pre-wrap break-words text-sm text-[#f4e6cd]/75">{preview.text}</p>
+          </div>
+        )}
 
         <fieldset className="mt-4 space-y-2">
           <legend className="sr-only">Reason</legend>

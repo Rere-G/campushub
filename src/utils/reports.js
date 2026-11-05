@@ -42,3 +42,33 @@ export async function submitReport({ uid, targetType, itemType, itemId, commentI
     createdAt: serverTimestamp(),
   });
 }
+
+// ---- Chat reports (stage 15h) ----
+// id = "<uid>_<convId>" — one report per chat per person. messageText must be an
+// exact copy of the other person's live text message (firestore.rules checks it).
+export const chatReportId = (uid, convId) => `${uid}_${convId}`;
+
+export async function hasReportedChat(uid, convId) {
+  const snap = await getDoc(doc(db, "reports", chatReportId(uid, convId)));
+  return snap.exists();
+}
+
+// conv: the conversation (with id, itemType, itemId); msg: the reported message.
+export async function submitChatReport({ uid, conv, msg, reason, note }) {
+  await setDoc(doc(db, "reports", chatReportId(uid, conv.id)), {
+    reporterId: uid,
+    targetType: "message",
+    itemType: conv.itemType,
+    itemId: conv.itemId,
+    commentId: "",
+    targetOwnerId: msg.senderId,
+    reason,
+    note: (note || "").trim().slice(0, REPORT_NOTE_MAX),
+    status: "open",
+    createdAt: serverTimestamp(),
+    convId: conv.id,
+    messageId: msg.id,
+    messageText: msg.text,
+  });
+}
+

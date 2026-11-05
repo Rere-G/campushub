@@ -8,10 +8,12 @@ import {
   HiOutlineNoSymbol,
   HiOutlineCheck,
   HiOutlineFlag,
+  HiOutlineChatBubbleLeftRight,
 } from "react-icons/hi2";
 import { db } from "../services/firebase";
 import { REPORT_REASONS } from "../utils/reports";
 import { notifyPostRemoved, notifyReportHandled } from "../utils/notifications";
+import ChatReviewDialog from "./ChatReviewDialog";
 
 const inter = { fontFamily: "'Inter', sans-serif" };
 
@@ -39,7 +41,19 @@ const nameOf = (u) =>
 
 const collFor = (itemType) => (itemType === "listing" ? "listings" : "services");
 const itemPath = (r) => `${collFor(r.itemType)}/${r.itemId}`;
-const targetPath = (r) => (r.targetType === "comment" ? `${itemPath(r)}/comments/${r.commentId}` : itemPath(r));
+const targetPath = (r) =>
+  r.targetType === "comment"
+    ? `${itemPath(r)}/comments/${r.commentId}`
+    : r.targetType === "message"
+    ? `conversations/${r.convId}/messages/${r.messageId}`
+    : itemPath(r);
+// Is the reported thing already taken down by an admin?
+const isRemoved = (r, t) =>
+  r.targetType === "message"
+    ? !!t?.data?.removedByAdmin
+    : r.targetType !== "comment" && t?.data?.status === "removed" && !!t?.data?.removedByAdmin;
+const PREVIEW_MAX = 140;
+const toPreview = (t) => String(t || "").replace(/\s+/g, " ").slice(0, PREVIEW_MAX);
 const pageLink = (r) => (r.itemType === "listing" ? `/marketplace/${r.itemId}` : `/services/${r.itemId}`);
 
 const FILTERS = [
@@ -65,6 +79,7 @@ export default function ReportsPanel({ adminUid, users, onUserBanned, onOpenCoun
   const [busyId, setBusyId] = useState(null);
   const [banFor, setBanFor] = useState(null); // report being banned on
   const [alsoRemove, setAlsoRemove] = useState(true);
+  const [reviewFor, setReviewFor] = useState(null); // chat report being reviewed
 
   const usersById = useMemo(() => Object.fromEntries(users.map((u) => [u.id, u])), [users]);
 
@@ -144,6 +159,29 @@ export default function ReportsPanel({ adminUid, users, onUserBanned, onOpenCoun
   };
 
   const removeContent = async (report) => {
+    if (report.targetType === "message") {
+      // Erase the message for both people (rules: reported chats only).
+      await updateDoc(doc(db, targetPath(report)), {
+        text: "",
+        deleted: true,
+        deletedAt: serverTimestamp(),
+        removedByAdmin: true,
+      });
+      // If the inbox preview still shows that text, replace it too.
+      try {
+        const c = await getDoc(doc(db, "conversations", report.convId));
+        if (c.exists() && c.data().lastMessage === toPreview(report.messageText)) {
+          await updateDoc(doc(db, "conversations", report.convId), { lastMessage: "Message removed by a moderator" });
+        }
+      } catch (e) {
+        console.error("Couldn't fix chat preview:", e);
+      }
+      setTargets((t) => ({
+        ...t,
+        [targetPath(report)]: { exists: true, data: { ...(t[targetPath(report)]?.data || {}), text: "", deleted: true, removedByAdmin: true } },
+      }));
+      return;
+    }
     if (report.targetType === "comment") {
       await deleteDoc(doc(db, targetPath(report)));
     } else {
@@ -205,9 +243,8 @@ export default function ReportsPanel({ adminUid, users, onUserBanned, onOpenCoun
       await updateDoc(doc(db, "users", report.targetOwnerId), { banned: true });
       onUserBanned?.(report.targetOwnerId);
       const t = targets[targetPath(report)];
-      // Skip only if it's already removed AND locked; an owner's own removal still gets locked.
-      const canRemove =
-        t?.exists && !(report.targetType !== "comment" && t.data?.status === "removed" && t.data?.removedByAdmin);
+      // Skip only if an admin already took it down; an owner's own removal still gets locked.
+      const canRemove = t?.exists && !isRemoved(report, t);
       if (alsoRemove && canRemove) await removeContent(report);
       await resolve(report, "actioned", "banned");
       toast(`Banned ${nameOf(usersById[report.targetOwnerId])}.`);
@@ -290,11 +327,14 @@ export default function ReportsPanel({ adminUid, users, onUserBanned, onOpenCoun
             const busy = busyId === r.id;
             const isOpen = r.status === "open";
             const gone = !target?.exists;
-            const alreadyRemoved = r.targetType !== "comment" && target?.data?.status === "removed";
+            const isChat = r.targetType === "message";
+            const alreadyRemoved = isChat ? !!target?.data?.removedByAdmin : r.targetType !== "comment" && target?.data?.status === "removed";
             const posterBanned = !!poster?.banned;
             const posterIsAdmin = poster?.role === "admin" || r.targetOwnerId === adminUid;
             const outcome = OUTCOME[r.action];
-            const typeLabel = r.targetType === "comment" ? `Comment on a ${r.itemType}` : r.targetType === "listing" ? "Listing" : "Service";
+            const typeLabel = isChat
+              ? "Chat message"
+              : r.targetType === "comment" ? `Comment on a ${r.itemType}` : r.targetType === "listing" ? "Listing" : "Service";
 
             return (
               <article key={r.id} className="rounded-2xl border border-white/[0.09] bg-white/[0.04] p-4">
@@ -338,13 +378,36 @@ export default function ReportsPanel({ adminUid, users, onUserBanned, onOpenCoun
                       </Link>
                     )}
                   </div>
+                  {isChat && (
+                    <>
+                      <p className="mt-1.5 whitespace-pre-wrap break-words rounded-lg bg-white/[0.04] px-2.5 py-2 text-xs leading-relaxed text-[#f4e6cd]/75">
+                        {r.messageText}
+                      </p>
+                      <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px]">
+                        <span className="text-[#f4e6cd]/40">
+                          {target?.data?.removedByAdmin
+                            ? "Removed by a moderator"
+                            : target?.data?.deleted
+                            ? "Since deleted by the sender (copy kept in the report)"
+                            : "Still visible in the chat"}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => setReviewFor(r)}
+                          className="inline-flex items-center gap-1 font-medium text-[#c9963f] hover:text-[#d6bd97]"
+                        >
+                          <HiOutlineChatBubbleLeftRight className="h-3.5 w-3.5" /> Open chat
+                        </button>
+                      </div>
+                    </>
+                  )}
                   {r.targetType === "comment" && (
                     <p className="mt-1.5 whitespace-pre-wrap break-words border-l-2 border-[#c9963f]/40 pl-2.5 text-xs leading-relaxed text-[#f4e6cd]/65">
                       {target?.exists ? target.data.text : "This comment has been deleted."}
                     </p>
                   )}
                   <p className="mt-2 text-[11px] text-[#f4e6cd]/45">
-                    Posted by <span className="font-semibold text-[#f4e6cd]/70">{nameOf(poster)}</span>
+                    {isChat ? "Sent by " : "Posted by "}<span className="font-semibold text-[#f4e6cd]/70">{nameOf(poster)}</span>
                     {posterBanned && <span className="ml-1.5 text-[#fca5a5]">(banned)</span>}
                     {alreadyRemoved && <span className="ml-1.5 text-[#fcd34d]">· already removed</span>}
                   </p>
@@ -357,7 +420,7 @@ export default function ReportsPanel({ adminUid, users, onUserBanned, onOpenCoun
                       disabled={busy || gone || alreadyRemoved}
                       className="inline-flex items-center gap-1.5 rounded-xl border border-[#fcd34d]/35 px-3.5 py-2 text-[12.5px] font-semibold text-[#fcd34d] transition-all hover:bg-[#fcd34d]/10 disabled:cursor-not-allowed disabled:opacity-35"
                     >
-                      <HiOutlineTrash className="h-4 w-4" /> Remove content
+                      <HiOutlineTrash className="h-4 w-4" /> {isChat ? "Remove message" : "Remove content"}
                     </button>
                     <button
                       onClick={() => {
@@ -368,7 +431,7 @@ export default function ReportsPanel({ adminUid, users, onUserBanned, onOpenCoun
                       title={posterIsAdmin ? "Admins can't be banned here" : undefined}
                       className="inline-flex items-center gap-1.5 rounded-xl border border-[#fca5a5]/40 px-3.5 py-2 text-[12.5px] font-semibold text-[#fca5a5] transition-all hover:bg-[#fca5a5]/10 disabled:cursor-not-allowed disabled:opacity-35"
                     >
-                      <HiOutlineNoSymbol className="h-4 w-4" /> Ban poster
+                      <HiOutlineNoSymbol className="h-4 w-4" /> {isChat ? "Ban sender" : "Ban poster"}
                     </button>
                     <button
                       onClick={() => handleDismiss(r)}
@@ -383,6 +446,15 @@ export default function ReportsPanel({ adminUid, users, onUserBanned, onOpenCoun
             );
           })}
         </div>
+      )}
+
+      {reviewFor && (
+        <ChatReviewDialog
+          convId={reviewFor.convId}
+          highlightId={reviewFor.messageId}
+          nameOf={(id) => nameOf(usersById[id])}
+          onClose={() => setReviewFor(null)}
+        />
       )}
 
       {/* ── Ban confirm ── */}
@@ -406,7 +478,11 @@ export default function ReportsPanel({ adminUid, users, onUserBanned, onOpenCoun
             </p>
             {(() => {
               const t = targets[targetPath(banFor)];
-              const removable = t?.exists && !(banFor.targetType !== "comment" && t.data?.status === "removed");
+              const removable =
+                t?.exists &&
+                (banFor.targetType === "message"
+                  ? !t.data?.removedByAdmin
+                  : !(banFor.targetType !== "comment" && t.data?.status === "removed"));
               return removable ? (
                 <label className="mt-4 flex cursor-pointer items-center gap-2.5 text-sm text-[#f4e6cd]/75">
                   <input
@@ -415,7 +491,7 @@ export default function ReportsPanel({ adminUid, users, onUserBanned, onOpenCoun
                     onChange={(e) => setAlsoRemove(e.target.checked)}
                     className="h-4 w-4 accent-[#f87171]"
                   />
-                  Also remove the reported {banFor.targetType}
+                  Also remove the reported {banFor.targetType === "message" ? "message" : banFor.targetType}
                 </label>
               ) : null;
             })()}
