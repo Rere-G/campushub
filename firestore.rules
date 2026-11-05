@@ -35,15 +35,40 @@ service cloud.firestore {
         || (d.targetType == 'comment' && d.itemType == 'listing' && d.commentId != ''
           && get(/databases/$(database)/documents/listings/$(d.itemId)/comments/$(d.commentId)).data.authorId == d.targetOwnerId)
         || (d.targetType == 'comment' && d.itemType == 'service' && d.commentId != ''
-          && get(/databases/$(database)/documents/services/$(d.itemId)/comments/$(d.commentId)).data.authorId == d.targetOwnerId);
+          && get(/databases/$(database)/documents/services/$(d.itemId)/comments/$(d.commentId)).data.authorId == d.targetOwnerId)
+        || (d.targetType == 'message' && messageReportOk(d));
+    }
+    // A chat report (stage 15h): the reporter is in the chat, and messageText is an
+    // exact copy of the other person's live (not deleted) text message.
+    function messageReportOk(d) {
+      let conv = get(/databases/$(database)/documents/conversations/$(d.convId)).data;
+      let msg = get(/databases/$(database)/documents/conversations/$(d.convId)/messages/$(d.messageId)).data;
+      return d.commentId == ''
+        && d.convId is string
+        && d.messageId is string
+        && d.messageText is string
+        && d.messageText.size() <= 1000
+        && request.auth.uid in conv.participants
+        && conv.itemId == d.itemId
+        && conv.itemType == d.itemType
+        && msg.senderId == d.targetOwnerId
+        && msg.type == 'text'
+        && msg.get('deleted', false) == false
+        && msg.text == d.messageText;
+    }
+    // Admins may open a chat only if one of its two people reported it.
+    function chatReported(convId, conv) {
+      return exists(/databases/$(database)/documents/reports/$(conv.buyerId + '_' + convId))
+        || exists(/databases/$(database)/documents/reports/$(conv.sellerId + '_' + convId));
     }
 
     // One report per person per piece of content: the doc id is
     // "<uid>_<itemId>" for a listing/service, "<uid>_<itemId>_<commentId>"
     // for a comment. Reporting twice hits the update rule and is refused.
     function reportIdOk(reportId, d) {
-      return (d.targetType != 'comment' && reportId == request.auth.uid + '_' + d.itemId)
-        || (d.targetType == 'comment' && reportId == request.auth.uid + '_' + d.itemId + '_' + d.commentId);
+      return (d.targetType in ['listing', 'service'] && reportId == request.auth.uid + '_' + d.itemId)
+        || (d.targetType == 'comment' && reportId == request.auth.uid + '_' + d.itemId + '_' + d.commentId)
+        || (d.targetType == 'message' && reportId == request.auth.uid + '_' + d.convId);
     }
 
     // Moderation lock (stage 14). An admin removal sets removedByAdmin: true,
@@ -352,9 +377,13 @@ service cloud.firestore {
       allow create: if isApprovedAndActive()
         && request.resource.data.keys().hasOnly([
              'reporterId', 'targetType', 'itemType', 'itemId', 'commentId',
-             'targetOwnerId', 'reason', 'note', 'status', 'createdAt'])
+             'targetOwnerId', 'reason', 'note', 'status', 'createdAt',
+             'convId', 'messageId', 'messageText'])
         && request.resource.data.reporterId == request.auth.uid
-        && request.resource.data.targetType in ['listing', 'service', 'comment']
+        && request.resource.data.targetType in ['listing', 'service', 'comment', 'message']
+        // Only chat reports carry the chat fields.
+        && (request.resource.data.targetType == 'message'
+            || !request.resource.data.keys().hasAny(['convId', 'messageId', 'messageText']))
         && request.resource.data.itemType in ['listing', 'service']
         && request.resource.data.itemId is string
         && request.resource.data.commentId is string
@@ -401,7 +430,8 @@ service cloud.firestore {
       // The buyer may look up their own chat id before it exists ("already chatting?").
       allow get: if request.auth != null
         && ((convId.split('_').size() == 2 && convId.split('_')[1] == request.auth.uid)
-            || request.auth.uid in resource.data.participants);
+            || request.auth.uid in resource.data.participants
+            || (isAdmin() && chatReported(convId, resource.data)));
       // Inbox: queries must filter participants array-contains me.
       allow list: if request.auth != null && request.auth.uid in resource.data.participants;
 
@@ -422,7 +452,7 @@ service cloud.firestore {
         && request.resource.data.lastSenderId == ''
         && chatItemOk(request.resource.data);
 
-      allow update: if request.auth != null
+      allow update: if (request.auth != null
         && request.auth.uid in resource.data.participants
         && (
           // After sending: the inbox preview, sent by me now (may also mark my own read time).
@@ -446,12 +476,20 @@ service cloud.firestore {
             && resource.data.lastSenderId == request.auth.uid
             && request.resource.data.lastMessage is string
             && request.resource.data.lastMessage.size() <= 140)
-        );
+        ))
+        ||
+        // Admin removed a message in a reported chat: may fix ONLY the preview text.
+        (isAdmin()
+          && chatReported(convId, resource.data)
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['lastMessage'])
+          && request.resource.data.lastMessage is string
+          && request.resource.data.lastMessage.size() <= 140);
 
       allow delete: if false;
 
       match /messages/{msgId} {
-        allow read: if isParticipant(convId);
+        allow read: if isParticipant(convId)
+          || (isAdmin() && chatReported(convId, convDoc(convId).data));
 
         allow create: if isApprovedAndActive()
           && isParticipant(convId)
@@ -484,7 +522,7 @@ service cloud.firestore {
               && request.resource.data.status == 'pending')
           );
 
-        allow update: if isApprovedAndActive()
+        allow update: if (isApprovedAndActive()
           && isParticipant(convId)
           && (
             // Answering a pending meeting/offer, once: the other person accepts or
@@ -523,7 +561,18 @@ service cloud.firestore {
             (resource.data.get('deleted', false) == false
               && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['reactions'])
               && reactionOk())
-          );
+          ))
+          ||
+          // Moderation (stage 15h): an admin erases a text message in a REPORTED chat.
+          (isAdmin()
+            && chatReported(convId, convDoc(convId).data)
+            && resource.data.type == 'text'
+            && request.resource.data.diff(resource.data).affectedKeys()
+                 .hasOnly(['text', 'deleted', 'deletedAt', 'removedByAdmin'])
+            && request.resource.data.text == ''
+            && request.resource.data.deleted == true
+            && request.resource.data.removedByAdmin == true
+            && request.resource.data.deletedAt == request.time);
 
         allow delete: if false;
       }

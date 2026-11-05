@@ -1352,6 +1352,132 @@ async function main() {
     await assertSucceeds(getDoc(doc(asSeller(), `${CONV}/typing/other-approved-user`)));
   });
 
+  // ---- Chat reports + admin moderation of reported chats (stage 15h) ----
+  // CONV (listing1_other-approved-user): seller's r1 = "Yes, still available" (from 147).
+  // listing1_banned-user (from 136) is never reported.
+  const UNREPORTED = "conversations/listing1_banned-user";
+  await testEnv.withSecurityRulesDisabled(async (context) => {
+    const db = context.firestore();
+    await setDoc(doc(db, `${CONV}/messages/del-b`), {
+      senderId: "other-approved-user", type: "text", text: "", deleted: true, createdAt: new Date(),
+    });
+    await setDoc(doc(db, `${UNREPORTED}/messages/u1`), {
+      senderId: "banned-user", type: "text", text: "hi", createdAt: new Date(),
+    });
+  });
+  const msgReport = (overrides = {}) => ({
+    reporterId: "other-approved-user",
+    targetType: "message",
+    itemType: "listing",
+    itemId: "listing1",
+    commentId: "",
+    targetOwnerId: "approved-user",
+    reason: "offensive",
+    note: "",
+    status: "open",
+    createdAt: serverTimestamp(),
+    convId: "listing1_other-approved-user",
+    messageId: "r1",
+    messageText: "Yes, still available",
+    ...overrides,
+  });
+  const sellerReport = (overrides = {}) =>
+    msgReport({ reporterId: "approved-user", targetOwnerId: "other-approved-user", ...overrides });
+  const asAdmin = () => testEnv.authenticatedContext("admin-user").firestore();
+
+  // 165. Buyer reports the chat with an exact copy of the seller's message.
+  await run("165. participant reports chat with exact message copy -> Allow", async () => {
+    await assertSucceeds(setDoc(doc(asBuyer(), "reports/other-approved-user_listing1_other-approved-user"), msgReport()));
+  });
+
+  // 166. The copied text doesn't match the real message.
+  await run("166. chat report with a faked message text -> Deny", async () => {
+    await assertFails(setDoc(doc(asSeller(), "reports/approved-user_listing1_other-approved-user"),
+      sellerReport({ messageId: "m-old", messageText: "something they never said" })));
+  });
+
+  // 167. Chat report filed under a listing-style id.
+  await run("167. chat report with the wrong id format -> Deny", async () => {
+    await assertFails(setDoc(doc(asSeller(), "reports/approved-user_listing1"),
+      sellerReport({ messageId: "m-old", messageText: "old" })));
+  });
+
+  // 168. Someone outside the chat reports it.
+  await run("168. outsider reports a chat -> Deny", async () => {
+    await assertFails(setDoc(doc(asOutsider(), "reports/third-user_listing1_other-approved-user"),
+      msgReport({ reporterId: "third-user", convId: "listing1_other-approved-user" })));
+  });
+
+  // 169. Reporting your own message.
+  await run("169. report your own message -> Deny", async () => {
+    await assertFails(setDoc(doc(asSeller(), "reports/approved-user_listing1_other-approved-user"),
+      msgReport({ reporterId: "approved-user" })));
+  });
+
+  // 170. Reporting a message the sender already deleted.
+  await run("170. report a deleted message -> Deny", async () => {
+    await assertFails(setDoc(doc(asSeller(), "reports/approved-user_listing1_other-approved-user"),
+      sellerReport({ messageId: "del-b", messageText: "" })));
+  });
+
+  // 171. Reporting a meetup card (not a text message).
+  await run("171. report a meetup card -> Deny", async () => {
+    await assertFails(setDoc(doc(asSeller(), "reports/approved-user_listing1_other-approved-user"),
+      sellerReport({ messageId: "meet1", messageText: "" })));
+  });
+
+  // 172. A listing report sneaking in chat fields.
+  await run("172. listing report carrying chat fields -> Deny", async () => {
+    await assertFails(setDoc(doc(asBuyer(), "reports/other-approved-user_service1"), {
+      ...reportData({ reporterId: "other-approved-user", targetType: "service", itemType: "service", itemId: "service1" }),
+      convId: "listing1_other-approved-user",
+    }));
+  });
+
+  // 173-176. Admin access: reported chats only.
+  await run("173. admin reads a reported chat -> Allow", async () => {
+    await assertSucceeds(getDoc(doc(asAdmin(), CONV)));
+  });
+  await run("174. admin reads messages of a reported chat -> Allow", async () => {
+    await assertSucceeds(getDocs(collection(asAdmin(), `${CONV}/messages`)));
+  });
+  await run("175. admin reads an unreported chat -> Deny", async () => {
+    await assertFails(getDoc(doc(asAdmin(), UNREPORTED)));
+  });
+  await run("176. admin reads messages of an unreported chat -> Deny", async () => {
+    await assertFails(getDocs(collection(asAdmin(), `${UNREPORTED}/messages`)));
+  });
+
+  // 177-180. Removing messages.
+  await run("177. admin removes a message in a reported chat -> Allow", async () => {
+    await assertSucceeds(updateDoc(doc(asAdmin(), `${CONV}/messages/r1`),
+      { text: "", deleted: true, deletedAt: serverTimestamp(), removedByAdmin: true }));
+  });
+  await run("178. admin removes a message in an unreported chat -> Deny", async () => {
+    await assertFails(updateDoc(doc(asAdmin(), `${UNREPORTED}/messages/u1`),
+      { text: "", deleted: true, deletedAt: serverTimestamp(), removedByAdmin: true }));
+  });
+  await run("179. admin rewrites a message instead of erasing it -> Deny", async () => {
+    await assertFails(updateDoc(doc(asAdmin(), `${CONV}/messages/m-old`),
+      { text: "edited by admin", deleted: true, deletedAt: serverTimestamp(), removedByAdmin: true }));
+  });
+  await run("180. participant fakes 'removed by a moderator' -> Deny", async () => {
+    await assertFails(updateDoc(doc(asBuyer(), `${CONV}/messages/m-old`),
+      { text: "", deleted: true, deletedAt: serverTimestamp(), removedByAdmin: true }));
+  });
+
+  // 181. Admin fixes the inbox preview of the reported chat.
+  await run("181. admin fixes preview text of a reported chat -> Allow", async () => {
+    await assertSucceeds(updateDoc(doc(asAdmin(), CONV), { lastMessage: "Message removed by a moderator" }));
+  });
+
+  // 182. Admin resolves the chat report.
+  await run("182. admin resolves the chat report -> Allow", async () => {
+    await assertSucceeds(updateDoc(doc(asAdmin(), "reports/other-approved-user_listing1_other-approved-user"), {
+      status: "actioned", action: "removed", resolvedBy: "admin-user", resolvedAt: serverTimestamp(),
+    }));
+  });
+
   await testEnv.cleanup();
 
   const failed = results.filter((r) => !r.pass);
