@@ -188,3 +188,24 @@ export async function pingTyping({ convId, uid }) {
 }
 export const TYPING_PING_MS = 3000;
 export const TYPING_SHOW_MS = 6000;
+
+// ---- Stage 15g: meetup proposals ----
+export const MEET_MAX_DAYS = 60;
+export const meetWhenText = (d) =>
+  d ? d.toLocaleString([], { weekday: "short", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }) : "";
+
+// Propose meeting at one of the fixed public spots (firestore.rules checks the
+// spot list and that the time is in the next 60 days).
+export async function sendMeeting({ conv, uid, spot, meetAt }) {
+  const convRef = doc(db, "conversations", conv.id);
+  const msgRef = doc(collection(convRef, "messages"));
+  const batch = writeBatch(db);
+  batch.set(msgRef, { senderId: uid, type: "meeting", spot, meetAt, status: "pending", createdAt: serverTimestamp() });
+  batch.update(convRef, {
+    lastMessage: toPreview(`Meetup: ${spotLabel(spot)} · ${meetWhenText(meetAt)}`),
+    lastSenderId: uid,
+    updatedAt: serverTimestamp(),
+    [readFieldFor(conv, uid)]: serverTimestamp(),
+  });
+  await batch.commit();
+}

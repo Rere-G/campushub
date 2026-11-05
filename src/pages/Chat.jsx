@@ -13,6 +13,7 @@ import {
   HiOutlineMapPin,
   HiOutlinePaperAirplane,
   HiOutlinePencil,
+  HiOutlinePlus,
   HiOutlineShieldCheck,
   HiOutlineShoppingBag,
   HiOutlineTrash,
@@ -21,6 +22,8 @@ import {
 } from "react-icons/hi2";
 import { auth, db } from "../services/firebase";
 import {
+  MEETING_SPOTS,
+  MEET_MAX_DAYS,
   MESSAGE_MAX,
   OFFER_MAX,
   REACTIONS,
@@ -35,6 +38,8 @@ import {
   pingTyping,
   quickMessages,
   reactionEmoji,
+  meetWhenText,
+  sendMeeting,
   sendOffer,
   sendText,
   setReaction,
@@ -83,6 +88,11 @@ export default function Chat() {
   const [offerOpen, setOfferOpen] = useState(false);
   const [offerAmount, setOfferAmount] = useState("");
   const [otherTyping, setOtherTyping] = useState(false);
+  const [meetOpen, setMeetOpen] = useState(false);
+  const [meetSpot, setMeetSpot] = useState("library");
+  const [meetDate, setMeetDate] = useState("");
+  const [meetTime, setMeetTime] = useState("14:00");
+  const [moreOpen, setMoreOpen] = useState(false); // phone "+" menu
   const lastPing = useRef(0);
   const typingTimer = useRef(null);
   // "Now", refreshed every 30 s, so Edit disappears when the 15-minute window ends.
@@ -273,10 +283,31 @@ export default function Chat() {
 
   const offerValue = Number(String(offerAmount).replace(/[^0-9]/g, ""));
   const offerOk = Number.isInteger(offerValue) && offerValue >= 1 && offerValue <= OFFER_MAX;
-  const openOffer = () => {
+  const closePanels = () => {
     setShowSuggestions(false);
+    setOfferOpen(false);
+    setMeetOpen(false);
+    setMoreOpen(false);
+  };
+  const toggleSuggestions = () => {
+    const next = !showSuggestions;
+    closePanels();
+    setShowSuggestions(next);
+  };
+  const openMeet = () => {
+    const next = !meetOpen;
+    closePanels();
+    if (next && !meetDate) {
+      const t = new Date(Date.now() + 24 * 60 * 60 * 1000);
+      setMeetDate(`${t.getFullYear()}-${String(t.getMonth() + 1).padStart(2, "0")}-${String(t.getDate()).padStart(2, "0")}`);
+    }
+    setMeetOpen(next);
+  };
+  const openOffer = () => {
+    const next = !offerOpen;
+    closePanels();
     setOfferAmount(item && !item.missing && item.price ? String(item.price) : "");
-    setOfferOpen((v) => !v);
+    setOfferOpen(next);
   };
   const submitOffer = async () => {
     if (!offerOk || sending) return;
@@ -293,6 +324,31 @@ export default function Chat() {
       setSending(false);
     }
   };
+  // Meetup: a fixed spot + a date/time between now and 60 days ahead.
+  const meetAt = meetDate && meetTime ? new Date(`${meetDate}T${meetTime}`) : null;
+  const meetOk =
+    !!meetAt && !Number.isNaN(meetAt.getTime()) &&
+    meetAt.getTime() > now + 5 * 60 * 1000 &&
+    meetAt.getTime() < now + (MEET_MAX_DAYS * 24 - 1) * 60 * 60 * 1000;
+  const toDateInput = (ms) => {
+    const t = new Date(ms);
+    return `${t.getFullYear()}-${String(t.getMonth() + 1).padStart(2, "0")}-${String(t.getDate()).padStart(2, "0")}`;
+  };
+  const submitMeet = async () => {
+    if (!meetOk || sending) return;
+    setSending(true);
+    try {
+      nearBottom.current = true;
+      await sendMeeting({ conv, uid, spot: meetSpot, meetAt });
+      setMeetOpen(false);
+    } catch (err) {
+      console.error("Meetup failed:", err);
+      setNotice("Couldn't send the meetup proposal. Try again.");
+    } finally {
+      setSending(false);
+    }
+  };
+
   const answer = async (m, status) => {
     try {
       await answerProposal({ convId: conv.id, msgId: m.id, status });
@@ -546,6 +602,7 @@ export default function Chat() {
                             onLongPress={() => !m.deleted && setSheetFor(m)}
                             onJump={jumpTo}
                             onAnswer={(st) => answer(m, st)}
+                            onProposeMeetup={() => !meetOpen && openMeet()}
                             receipt={receiptFor?.id === m.id ? receiptFor.text : ""}
                           />
                         ))}
@@ -575,6 +632,95 @@ export default function Chat() {
           <div className="mx-auto mb-2 max-w-3xl">
             <SuggestionList items={suggestions} onPick={(t) => send(t)} disabled={sending} compact />
           </div>
+        )}
+
+        {meetOpen && (
+          <div className="mx-auto mb-2 max-w-3xl rounded-2xl border border-white/[0.08] bg-[#15110b] p-3">
+            <p className="text-sm font-semibold text-white/85">Propose a meetup</p>
+            <fieldset className="mt-2">
+              <legend className="sr-only">Place</legend>
+              <div className="grid grid-cols-1 gap-1.5 sm:grid-cols-2">
+                {MEETING_SPOTS.map((sp) => (
+                  <label
+                    key={sp.key}
+                    className={`flex h-10 cursor-pointer items-center gap-2.5 rounded-xl border px-3 text-sm transition-colors ${
+                      meetSpot === sp.key ? "border-[#c9963f]/60 bg-[#c9963f]/10 text-[#f4e6cd]" : "border-white/10 text-white/65 hover:border-white/20"
+                    }`}
+                  >
+                    <input
+                      type="radio"
+                      name="meet-spot"
+                      value={sp.key}
+                      checked={meetSpot === sp.key}
+                      onChange={() => setMeetSpot(sp.key)}
+                      className="accent-[#c9963f]"
+                    />
+                    {sp.label}
+                  </label>
+                ))}
+              </div>
+            </fieldset>
+            <div className="mt-2.5 flex flex-wrap items-end gap-2">
+              <label className="flex flex-col gap-1 text-xs text-white/50">
+                Date
+                <input
+                  id="meet-date"
+                  type="date"
+                  value={meetDate}
+                  min={toDateInput(now)}
+                  max={toDateInput(now + (MEET_MAX_DAYS - 1) * 24 * 60 * 60 * 1000)}
+                  onChange={(e) => setMeetDate(e.target.value)}
+                  className="h-10 rounded-xl border border-[#d6bd97]/20 bg-[#090704]/80 px-3 text-sm text-[#f4e6cd] outline-none [color-scheme:dark] focus:border-[#c9963f]"
+                />
+              </label>
+              <label className="flex flex-col gap-1 text-xs text-white/50">
+                Time
+                <input
+                  id="meet-time"
+                  type="time"
+                  value={meetTime}
+                  onChange={(e) => setMeetTime(e.target.value)}
+                  className="h-10 rounded-xl border border-[#d6bd97]/20 bg-[#090704]/80 px-3 text-sm text-[#f4e6cd] outline-none [color-scheme:dark] focus:border-[#c9963f]"
+                />
+              </label>
+              <div className="ml-auto flex gap-1">
+                <button type="button" onClick={() => setMeetOpen(false)} className="h-10 px-2 text-sm text-white/50 hover:text-white">
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={submitMeet}
+                  disabled={!meetOk || sending}
+                  className="h-10 rounded-xl bg-gradient-to-r from-[#8f774b] to-[#c9963f] px-4 text-sm font-semibold text-[#f4e6cd] disabled:cursor-not-allowed disabled:opacity-40"
+                >
+                  Send proposal
+                </button>
+              </div>
+            </div>
+            {meetAt && !meetOk && (
+              <p className="mt-2 text-xs text-red-300">Pick a time from now up to {MEET_MAX_DAYS} days ahead.</p>
+            )}
+            <p className="mt-2 flex items-start gap-1.5 text-xs text-[#f4e6cd]/55">
+              <HiOutlineShieldCheck className="mt-0.5 h-3.5 w-3.5 shrink-0 text-[#d6bd97]" />
+              Meet in a public campus location during opening hours. Do not share your address.
+            </p>
+          </div>
+        )}
+
+        {moreOpen && (
+          <ul className="mx-auto mb-2 max-w-3xl overflow-hidden rounded-2xl border border-white/[0.08] bg-[#15110b] md:hidden">
+            {[
+              { label: "Make an offer", onClick: openOffer },
+              { label: "Propose a meetup", onClick: openMeet },
+              ...(messages.length > 0 ? [{ label: "Suggestions", onClick: toggleSuggestions }] : []),
+            ].map((o, i) => (
+              <li key={o.label} className={i ? "border-t border-white/[0.06]" : ""}>
+                <button type="button" onClick={o.onClick} className="w-full px-4 py-3 text-left text-sm text-[#f4e6cd]/85 hover:bg-white/[0.05]">
+                  {o.label}
+                </button>
+              </li>
+            ))}
+          </ul>
         )}
 
         {offerOpen && (
@@ -636,31 +782,59 @@ export default function Chat() {
 
         <div className="mx-auto flex max-w-3xl items-end gap-2">
           {!editing && conv && (
-            <button
-              type="button"
-              onClick={openOffer}
-              aria-expanded={offerOpen}
-              className={`h-11 shrink-0 rounded-xl px-2 text-xs font-semibold transition-colors ${
-                offerOpen ? "text-[#d6bd97]" : "text-white/40 hover:text-white/70"
-              }`}
-            >
-              Offer
-            </button>
-          )}
-          {messages.length > 0 && !editing && (
-            <button
-              type="button"
-              onClick={() => {
-                setOfferOpen(false);
-                setShowSuggestions((v) => !v);
-              }}
-              aria-expanded={showSuggestions}
-              className={`h-11 shrink-0 rounded-xl px-2 text-xs font-semibold transition-colors ${
-                showSuggestions ? "text-[#d6bd97]" : "text-white/40 hover:text-white/70"
-              }`}
-            >
-              Suggestions
-            </button>
+            <>
+              {/* Phone: one "+" opens the same choices as rows */}
+              <button
+                type="button"
+                onClick={() => {
+                  const next = !moreOpen;
+                  closePanels();
+                  setMoreOpen(next);
+                }}
+                aria-label="More: offer, meetup, suggestions"
+                aria-expanded={moreOpen}
+                className={`flex h-11 w-9 shrink-0 items-center justify-center rounded-xl transition-colors md:hidden ${
+                  moreOpen ? "text-[#d6bd97]" : "text-white/45"
+                }`}
+              >
+                <HiOutlinePlus className="h-5 w-5" />
+              </button>
+              {/* Desktop: quiet text buttons */}
+              <div className="hidden items-end md:flex">
+                <button
+                  type="button"
+                  onClick={openOffer}
+                  aria-expanded={offerOpen}
+                  className={`h-11 shrink-0 rounded-xl px-2 text-xs font-semibold transition-colors ${
+                    offerOpen ? "text-[#d6bd97]" : "text-white/40 hover:text-white/70"
+                  }`}
+                >
+                  Offer
+                </button>
+                <button
+                  type="button"
+                  onClick={openMeet}
+                  aria-expanded={meetOpen}
+                  className={`h-11 shrink-0 rounded-xl px-2 text-xs font-semibold transition-colors ${
+                    meetOpen ? "text-[#d6bd97]" : "text-white/40 hover:text-white/70"
+                  }`}
+                >
+                  Meetup
+                </button>
+                {messages.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={toggleSuggestions}
+                    aria-expanded={showSuggestions}
+                    className={`h-11 shrink-0 rounded-xl px-2 text-xs font-semibold transition-colors ${
+                      showSuggestions ? "text-[#d6bd97]" : "text-white/40 hover:text-white/70"
+                    }`}
+                  >
+                    Suggestions
+                  </button>
+                )}
+              </div>
+            </>
           )}
           <label htmlFor="chat-input" className="sr-only">Message</label>
           <textarea
@@ -799,7 +973,7 @@ function ReactionBadges({ reactions, uid, onToggle, mine }) {
   );
 }
 
-function MessageRow({ m, uid, now, mine, first, last, highlighted, nameOf, onReply, onEdit, onDelete, onReact, onLongPress, onJump, onAnswer, receipt }) {
+function MessageRow({ m, uid, now, mine, first, last, highlighted, nameOf, onReply, onEdit, onDelete, onReact, onLongPress, onJump, onAnswer, onProposeMeetup, receipt }) {
   const [reactOpen, setReactOpen] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const press = useRef(null);
@@ -811,24 +985,10 @@ function MessageRow({ m, uid, now, mine, first, last, highlighted, nameOf, onRep
   const endPress = () => clearTimeout(press.current);
 
   if (m.type === "meeting") {
-    const when = m.meetAt?.toDate?.();
-    const status = { pending: "Waiting for a reply", accepted: "Accepted", declined: "Declined", cancelled: "Cancelled" }[m.status] || "";
-    return (
-      <div id={`msg-${m.id}`} className="w-full max-w-[320px] rounded-2xl border border-[#c9963f]/30 bg-[#c9963f]/[0.07] p-3.5">
-        <p className="text-[11px] font-semibold uppercase tracking-wider text-[#d6bd97]">Meeting proposal</p>
-        <p className="mt-2 flex items-center gap-2 text-sm text-white">
-          <HiOutlineMapPin className="h-4 w-4 text-[#d6bd97]" /> {spotLabel(m.spot)}
-        </p>
-        <p className="mt-1 flex items-center gap-2 text-sm text-white/80">
-          <HiOutlineCalendarDays className="h-4 w-4 text-[#d6bd97]" />
-          {when ? when.toLocaleString([], { weekday: "short", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }) : ""}
-        </p>
-        <p className="mt-2 text-xs text-white/45">{status}</p>
-      </div>
-    );
+    return <MeetingCard m={m} mine={mine} now={now} nameOf={nameOf} onAnswer={onAnswer} receipt={receipt} />;
   }
   if (m.type === "offer") {
-    return <OfferCard m={m} mine={mine} nameOf={nameOf} onAnswer={onAnswer} receipt={receipt} />;
+    return <OfferCard m={m} mine={mine} nameOf={nameOf} onAnswer={onAnswer} onProposeMeetup={onProposeMeetup} receipt={receipt} />;
   }
   if (m.type !== "text") return null;
 
@@ -937,8 +1097,71 @@ function MessageRow({ m, uid, now, mine, first, last, highlighted, nameOf, onRep
   );
 }
 
+// Meetup proposal. The other person accepts/declines; the sender may cancel.
+// A pending proposal whose time has passed shows as expired (no buttons).
+function MeetingCard({ m, mine, now, nameOf, onAnswer, receipt }) {
+  const [busy, setBusy] = useState(false);
+  const act = async (status) => {
+    setBusy(true);
+    await onAnswer(status);
+    setBusy(false);
+  };
+  const when = m.meetAt?.toDate?.() ?? null;
+  const expired = m.status === "pending" && when && when.getTime() < now;
+  const statusText = expired
+    ? "Expired. Propose a new time."
+    : {
+        pending: mine ? "Waiting for a reply" : `${nameOf(m.senderId)} proposed a meetup`,
+        accepted: "Meetup confirmed",
+        declined: "Declined",
+        cancelled: "Cancelled",
+      }[m.status] || "";
+  const faded = m.status === "declined" || m.status === "cancelled" || expired;
+  const btn = "h-9 flex-1 rounded-xl text-sm font-semibold transition-colors disabled:opacity-50";
+  return (
+    <div id={`msg-${m.id}`} className={`flex flex-col ${mine ? "items-end" : "items-start"}`}>
+      <div className={`w-[280px] max-w-full rounded-2xl border p-3.5 ${
+        m.status === "accepted" ? "border-emerald-400/30 bg-emerald-500/[0.06]" : "border-[#c9963f]/30 bg-[#c9963f]/[0.07]"
+      }`}>
+        <p className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider text-[#d6bd97]">
+          <HiOutlineCalendarDays className="h-4 w-4" /> Meetup
+        </p>
+        <p className={`mt-2 flex items-center gap-2 text-sm font-semibold ${faded ? "text-white/40 line-through" : "text-white"}`}>
+          <HiOutlineMapPin className="h-4 w-4 shrink-0 text-[#d6bd97]" /> {spotLabel(m.spot)}
+        </p>
+        <p className={`mt-1 pl-6 text-sm ${faded ? "text-white/35 line-through" : "text-white/75"}`}>{meetWhenText(when)}</p>
+        <p className={`mt-2 text-xs ${m.status === "accepted" && !expired ? "text-emerald-300" : "text-white/45"}`}>{statusText}</p>
+        {m.status === "pending" && !expired && (
+          <div className="mt-3 flex gap-2">
+            {mine ? (
+              <button type="button" disabled={busy} onClick={() => act("cancelled")} className={`${btn} border border-white/10 text-white/70 hover:bg-white/[0.06]`}>
+                Cancel proposal
+              </button>
+            ) : (
+              <>
+                <button type="button" disabled={busy} onClick={() => act("accepted")} className={`${btn} bg-gradient-to-r from-[#8f774b] to-[#c9963f] text-[#f4e6cd]`}>
+                  Accept
+                </button>
+                <button type="button" disabled={busy} onClick={() => act("declined")} className={`${btn} border border-white/10 text-white/70 hover:bg-white/[0.06]`}>
+                  Decline
+                </button>
+              </>
+            )}
+          </div>
+        )}
+        {!faded && (
+          <p className="mt-3 border-t border-white/[0.07] pt-2 text-[11px] leading-relaxed text-white/40">
+            Meet in a public campus location during opening hours. Do not share your address.
+          </p>
+        )}
+      </div>
+      {receipt && <p className="mt-0.5 px-1 text-[10px] text-white/35">{receipt}</p>}
+    </div>
+  );
+}
+
 // Price offer card. The other person accepts/declines; the sender may cancel.
-function OfferCard({ m, mine, nameOf, onAnswer, receipt }) {
+function OfferCard({ m, mine, nameOf, onAnswer, onProposeMeetup, receipt }) {
   const [busy, setBusy] = useState(false);
   const act = async (status) => {
     setBusy(true);
@@ -966,7 +1189,14 @@ function OfferCard({ m, mine, nameOf, onAnswer, receipt }) {
         </p>
         <p className={`mt-1 text-xs ${m.status === "accepted" ? "text-emerald-300" : "text-white/45"}`}>{statusText}</p>
         {m.status === "accepted" && (
-          <p className="mt-2 text-xs leading-relaxed text-white/60">Agreed at {amount}. Arrange a meetup to complete the deal.</p>
+          <>
+            <p className="mt-2 text-xs leading-relaxed text-white/60">Agreed at {amount}. Arrange a meetup to complete the deal.</p>
+            {onProposeMeetup && (
+              <button type="button" onClick={onProposeMeetup} className="mt-2 text-xs font-semibold text-[#d6bd97] hover:text-[#f4e6cd]">
+                Propose a meetup
+              </button>
+            )}
+          </>
         )}
         {m.status === "pending" && (
           <div className="mt-3 flex gap-2">
