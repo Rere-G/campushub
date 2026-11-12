@@ -1,18 +1,15 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { Suspense, lazy, useCallback, useEffect, useMemo, useState } from "react";
 import { usePageTitle } from "../utils/pageTitle";
 import { Link, useNavigate } from "react-router-dom";
 import { onAuthStateChanged } from "firebase/auth";
 import { doc, getDoc, getDocs, collection, updateDoc } from "firebase/firestore";
 import {
+  HiOutlineChartBar,
   HiOutlineUsers,
   HiOutlineTag,
   HiOutlineFlag,
   HiOutlineShieldCheck,
-  HiOutlineCheckBadge,
-  HiOutlineClock,
-  HiOutlineNoSymbol,
   HiOutlineArrowLeft,
-  HiOutlineLockClosed,
   HiOutlineExclamationTriangle,
 } from "react-icons/hi2";
 import { auth, db } from "../services/firebase";
@@ -20,108 +17,14 @@ import { notifyAccountApproved } from "../utils/notifications";
 import dashboardBg from "../assets/dashboard-bg.jpg";
 import ReportsPanel from "../components/ReportsPanel";
 import PostsPanel from "../components/PostsPanel";
+import PageLoader from "../components/PageLoader";
+
+// Stage 18c-1: charts load only when the Overview tab is shown.
+const AdminOverview = lazy(() => import("../components/AdminOverview"));
 
 /* ─── Reduced-motion (module-level, read once) ─────────────────── */
 const prefersReduced =
-  typeof window !== "undefined" &&
-  window.matchMedia &&
-  window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-
-/* ─── Animated counter (mirrors Dashboard) ─────────────────────── */
-function useCountUp(target, duration = 1000, active = false) {
-  const [count, setCount] = useState(0);
-  useEffect(() => {
-    if (!active) return;
-    let start = null;
-    let raf;
-    const tick = (ts) => {
-      if (!start) start = ts;
-      // Reduced motion → jump to final value on the first frame.
-      const p = prefersReduced ? 1 : Math.min((ts - start) / duration, 1);
-      const ease = 1 - Math.pow(1 - p, 3);
-      setCount(Math.round(ease * target));
-      if (p < 1) raf = requestAnimationFrame(tick);
-    };
-    raf = requestAnimationFrame(tick);
-    return () => cancelAnimationFrame(raf);
-  }, [target, duration, active]);
-  return count;
-}
-
-/* ─── Stat tile ────────────────────────────────────────────────── */
-function StatTile({ label, value, icon: Icon, color, show, delay = 0 }) {
-  const count = useCountUp(value, 1000, show);
-  return (
-    <div
-      className="rounded-2xl border border-white/10 bg-white/[0.05] px-3 py-4 text-center transition-all duration-500 hover:-translate-y-1 hover:border-white/20 hover:bg-white/[0.08]"
-      style={{
-        opacity: show ? 1 : 0,
-        transform: show ? "translateY(0)" : "translateY(10px)",
-        transition: `opacity 0.5s ease ${delay}ms, transform 0.5s ease ${delay}ms, background 0.3s, border-color 0.3s`,
-      }}
-    >
-      <div className="mb-2 flex justify-center">
-        <div className="flex h-9 w-9 items-center justify-center rounded-xl border border-white/10 bg-white/[0.06]">
-          <Icon className="h-4 w-4" style={{ color }} />
-        </div>
-      </div>
-      <p className="font-mono text-[28px] font-bold leading-none tabular-nums" style={{ color }}>
-        {count}
-      </p>
-      <p className="mt-2 text-[10px] uppercase tracking-[0.14em] text-[#f4e6cd]/45">{label}</p>
-    </div>
-  );
-}
-
-/* ─── Section card (clickable / locked) ────────────────────────── */
-// A clickable card switches the panel below it. A locked card is a
-// placeholder for a section that isn't built yet.
-function SectionCard({ icon: Icon, title, desc, locked, lockedNote = "Coming soon", active = false, onClick, badge = 0 }) {
-  const Tag = locked ? "div" : "button";
-  return (
-    <Tag
-      {...(locked ? {} : { type: "button", onClick, "aria-pressed": active })}
-      className={`relative overflow-hidden rounded-2xl border px-5 py-4 text-left ${
-        locked
-          ? "border-white/10 bg-white/[0.03] opacity-60"
-          : active
-          ? "border-[#c9963f]/60 bg-[#c9963f]/[0.08] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#c9963f]/60"
-          : "border-white/10 bg-white/[0.05] transition-all duration-200 hover:-translate-y-0.5 hover:border-[#c9963f]/50 focus:outline-none focus-visible:ring-2 focus-visible:ring-[#c9963f]/60"
-      }`}
-    >
-      <div
-        className="pointer-events-none absolute inset-x-0 top-0 h-[3px]"
-        style={{
-          background: locked
-            ? "rgba(255,255,255,0.12)"
-            : "linear-gradient(90deg,#8f774b,#c9963f)",
-        }}
-      />
-      {locked && (
-        <span className="absolute right-4 top-4 text-[#f4e6cd]/50">
-          <HiOutlineLockClosed className="h-4 w-4" />
-        </span>
-      )}
-      {!locked && badge > 0 && (
-        <span className="absolute right-4 top-4 rounded-full bg-[#f87171] px-2 py-0.5 text-[11px] font-bold text-white">
-          {badge}
-        </span>
-      )}
-      <div className="flex h-9 w-9 items-center justify-center rounded-xl border border-white/10 bg-white/[0.06]">
-        <Icon className="h-5 w-5 text-[#d6bd97]" />
-      </div>
-      <h3 className="mt-3 text-[15px] font-semibold text-white" style={{ fontFamily: "'Inter', sans-serif" }}>
-        {title}
-      </h3>
-      <p className="mt-0.5 text-xs text-[#f4e6cd]/50">{desc}</p>
-      {locked && (
-        <span className="mt-2 inline-block rounded-full bg-[#c9963f]/15 px-2.5 py-1 text-[10px] uppercase tracking-[0.08em] text-[#d6bd97]">
-          {lockedNote}
-        </span>
-      )}
-    </Tag>
-  );
-}
+  typeof window !== "undefined" && window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
 
 /* ─── Helpers ──────────────────────────────────────────────────── */
 const isUrl = (v) => /^https?:\/\//i.test(String(v || ""));
@@ -163,7 +66,7 @@ export default function Admin() {
   const [tab, setTab] = useState("pending");
   const [busyId, setBusyId] = useState(null);
   const [confirmState, setConfirmState] = useState(null); // { user, kind: 'ban' | 'revoke' }
-  const [section, setSection] = useState("users"); // "users" | "posts" | "reports"
+  const [section, setSection] = useState("overview"); // "overview" | "users" | "posts" | "reports"
   const [openReports, setOpenReports] = useState(0);
   const [popup, setPopup] = useState({ show: false, text: "", ok: true });
 
@@ -265,6 +168,19 @@ export default function Admin() {
     else applyChange(user, { approved: false }, `Revoked ${displayName(user)}`);
   };
 
+  // From the Overview: jump to a section (and a Users filter tab).
+  const goTo = useCallback((next, userTab) => {
+    setSection(next);
+    if (userTab) setTab(userTab);
+  }, []);
+
+  const SECTIONS = [
+    { key: "overview", label: "Overview", icon: HiOutlineChartBar },
+    { key: "users", label: "Users", icon: HiOutlineUsers, badge: counts.pending },
+    { key: "posts", label: "Posts", icon: HiOutlineTag },
+    { key: "reports", label: "Reports", icon: HiOutlineFlag, badge: openReports, alert: true },
+  ];
+
   const card =
     "relative overflow-hidden rounded-[24px] border border-white/[0.08] bg-white/[0.04] backdrop-blur-xl shadow-[0_20px_60px_rgba(0,0,0,0.45)]";
 
@@ -278,7 +194,7 @@ export default function Admin() {
       <div className="absolute inset-0 bg-[#0d0b07]/85" />
       <div className="absolute inset-0 bg-gradient-to-b from-[#1a120a]/45 via-[#0d0b07]/75 to-black/95" />
 
-      <div className="relative z-10 mx-auto max-w-5xl px-4 py-6 sm:px-6">
+      <div className="relative z-10 mx-auto max-w-6xl px-4 py-6 sm:px-6">
         {/* ── Header ── */}
         <header
           className={`${card} mb-6 px-6 py-5 transition-all duration-700 ${
@@ -300,7 +216,7 @@ export default function Admin() {
               <h1 className="mt-2 text-3xl font-bold tracking-tight text-white sm:text-4xl" style={{ fontFamily: "'Inter', sans-serif" }}>
                 Admin Dashboard
               </h1>
-              <p className="mt-1 text-sm text-[#f4e6cd]/55">Approvals &amp; moderation</p>
+              <p className="mt-1 text-sm text-[#f4e6cd]/55">Approvals, moderation and campus activity</p>
             </div>
             <Link
               to="/dashboard"
@@ -311,45 +227,59 @@ export default function Admin() {
           </div>
         </header>
 
-        {/* ── Stat tiles ── */}
-        <div className="mb-5 grid grid-cols-2 gap-3 sm:grid-cols-4">
-          <StatTile label="Pending" value={counts.pending} icon={HiOutlineClock} color="#d6bd97" show={show} delay={80} />
-          <StatTile label="Approved" value={counts.approved} icon={HiOutlineCheckBadge} color="#86efac" show={show} delay={160} />
-          <StatTile label="Banned" value={counts.banned} icon={HiOutlineNoSymbol} color="#fca5a5" show={show} delay={240} />
-          <StatTile label="Total users" value={counts.all} icon={HiOutlineUsers} color="#f4e6cd" show={show} delay={320} />
-        </div>
-
-        {/* ── Section cards ── */}
-        <div
-          className={`mb-6 grid grid-cols-1 gap-3 sm:grid-cols-3 transition-all duration-700 delay-150 ${
+        {/* ── Section tabs (stage 18c-1) ── */}
+        <nav
+          aria-label="Admin sections"
+          className={`mb-5 flex gap-1 overflow-x-auto rounded-2xl border border-white/[0.08] bg-white/[0.035] p-1 backdrop-blur-xl transition-all duration-700 delay-100 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden ${
             show ? "translate-y-0 opacity-100" : "translate-y-6 opacity-0"
           }`}
         >
-          <SectionCard
-            icon={HiOutlineUsers}
-            title="Users & approvals"
-            desc="Approve, revoke, and ban students."
-            active={section === "users"}
-            onClick={() => setSection("users")}
-          />
-          <SectionCard
-            icon={HiOutlineTag}
-            title="Posts"
-            desc="Review, remove and restore listings and services."
-            active={section === "posts"}
-            onClick={() => setSection("posts")}
-          />
-          <SectionCard
-            icon={HiOutlineFlag}
-            title="Reports"
-            desc="Handle reported listings, services and comments."
-            active={section === "reports"}
-            onClick={() => setSection("reports")}
-            badge={openReports}
-          />
-        </div>
+          {SECTIONS.map(({ key, label, icon: Icon, badge, alert }) => {
+            const active = section === key;
+            return (
+              <button
+                key={key}
+                type="button"
+                aria-current={active ? "page" : undefined}
+                onClick={() => setSection(key)}
+                className={`inline-flex h-10 flex-1 shrink-0 items-center justify-center gap-1.5 whitespace-nowrap rounded-xl px-2.5 text-[13px] font-semibold transition-all sm:gap-2 sm:px-4 sm:text-sm ${
+                  active
+                    ? "bg-gradient-to-r from-[#8f774b]/90 to-[#c9963f]/90 text-[#f4e6cd] shadow-[0_6px_18px_rgba(143,119,75,0.35)]"
+                    : "text-white/55 hover:bg-white/[0.06] hover:text-white"
+                }`}
+              >
+                <Icon className="hidden h-4 w-4 min-[400px]:block sm:block" />
+                {label}
+                {badge > 0 && (
+                  <span
+                    className={`flex h-5 min-w-5 items-center justify-center rounded-full px-1 text-[10px] font-bold ${
+                      active ? "bg-[#1a120a]/40 text-[#f4e6cd]" : alert ? "bg-red-400/90 text-[#1a0a0a]" : "bg-[#c9963f] text-[#1a120a]"
+                    }`}
+                  >
+                    {badge > 99 ? "99+" : badge}
+                  </span>
+                )}
+              </button>
+            );
+          })}
+        </nav>
 
-        {/* ── Users panel ── */}
+        {section === "overview" ? (
+          loading ? (
+            <PageLoader />
+          ) : loadErr ? (
+            <div className={`${card} flex flex-col items-center px-4 py-12 text-center`}>
+              <HiOutlineExclamationTriangle className="h-6 w-6 text-red-300/70" />
+              <p className="mt-3 text-sm font-semibold text-white/70">Couldn't load the overview</p>
+              <p className="mt-1 text-sm text-white/40">Check your connection and refresh the page.</p>
+            </div>
+          ) : (
+            <Suspense fallback={<PageLoader />}>
+              <AdminOverview users={users} openReports={openReports} onGo={goTo} />
+            </Suspense>
+          )
+        ) : (
+        /* ── Users / Posts / Reports panel ── */
         <section
           className={`${card} p-5 transition-all duration-700 delay-200 ${
             show ? "translate-y-0 opacity-100" : "translate-y-8 opacity-0"
@@ -511,6 +441,7 @@ export default function Admin() {
           </div>
           )}
         </section>
+        )}
 
         <footer className="mt-6 flex items-center justify-between rounded-2xl border border-white/[0.05] bg-white/[0.02] px-6 py-3.5">
           <p className="text-[11px] uppercase tracking-[0.28em] text-white/20">CampusHub © {new Date().getFullYear()}</p>
