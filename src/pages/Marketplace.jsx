@@ -9,7 +9,6 @@ import {
   HiOutlinePlusCircle,
   HiOutlineBookmark,
   HiBookmark,
-  HiOutlineArrowLeft,
   HiOutlineExclamationTriangle,
   HiOutlineXMark,
 } from "react-icons/hi2";
@@ -18,6 +17,9 @@ import dashboardBg from "../assets/dashboard-bg.jpg";
 import { CATEGORIES } from "../constants/categories";
 import { saveIdFor, toggleSave } from "../utils/saves";
 import PriceFilter from "../components/PriceFilter";
+import BrowseHeader from "../components/BrowseHeader";
+import { NewBadge, PostRow, ResultsBar } from "../components/BrowseControls";
+import { isNewPost, sortPosts, useBrowseView } from "../utils/browse";
 import { conditionLabel, currencyOf, formatPostPrice } from "../utils/postDetails";
 
 const inter = { fontFamily: "'Inter', sans-serif" };
@@ -57,6 +59,8 @@ export default function Marketplace() {
   const [currencyFilter, setCurrencyFilter] = useState("all");
   const [minPrice, setMinPrice] = useState("");
   const [maxPrice, setMaxPrice] = useState("");
+  const [sort, setSort] = useState("newest");
+  const [view, setView] = useBrowseView("marketplace");
 
   const [popup, setPopup] = useState({ show: false, text: "", ok: true });
   const toast = (text, ok = true) => {
@@ -114,7 +118,12 @@ export default function Marketplace() {
   }, [navigate]);
 
   const hasActiveFilters =
-    tab !== "all" || search.trim() !== "" || currencyFilter !== "all" || minPrice !== "" || maxPrice !== "";
+    tab !== "all" ||
+    search.trim() !== "" ||
+    currencyFilter !== "all" ||
+    minPrice !== "" ||
+    maxPrice !== "" ||
+    sort !== "newest";
 
   const clearFilters = () => {
     setTab("all");
@@ -122,20 +131,30 @@ export default function Marketplace() {
     setCurrencyFilter("all");
     setMinPrice("");
     setMaxPrice("");
+    setSort("newest");
+  };
+
+  // Ks and $ can't be compared, so price sorting needs one currency picked.
+  const pickCurrency = (c) => {
+    setCurrencyFilter(c);
+    if (c === "all") setSort("newest");
   };
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
     const min = minPrice !== "" ? Number(minPrice) : null;
     const max = maxPrice !== "" ? Number(maxPrice) : null;
-    return listings
+    const list = listings
       .filter((l) => tab === "all" || l.category === tab)
       .filter((l) => !q || l.title.toLowerCase().includes(q) || (l.description || "").toLowerCase().includes(q))
       .filter((l) => currencyFilter === "all" || currencyOf(l) === currencyFilter)
       .filter((l) => min === null || l.price >= min)
-      .filter((l) => max === null || l.price <= max)
-      .sort((a, b) => (b.createdAt?.toMillis?.() || 0) - (a.createdAt?.toMillis?.() || 0));
-  }, [listings, tab, search, currencyFilter, minPrice, maxPrice]);
+      .filter((l) => max === null || l.price <= max);
+    return sortPosts(list, sort);
+  }, [listings, tab, search, currencyFilter, minPrice, maxPrice, sort]);
+
+  // Header stats, from the listings already loaded.
+  const postedToday = useMemo(() => listings.filter(isNewPost).length, [listings]);
 
   const handleToggleSave = async (e, listingId) => {
     e.preventDefault();
@@ -184,34 +203,20 @@ export default function Marketplace() {
 
       <div className="relative z-10 mx-auto max-w-6xl px-4 py-6 sm:px-6">
         {/* ── Header ── */}
-        <header
-          className={`${card} mb-5 px-6 py-5 transition-all duration-700 ${
-            show ? "translate-y-0 opacity-100" : "-translate-y-6 opacity-0"
-          }`}
-        >
-          <div
-            className="pointer-events-none absolute inset-x-0 top-0 h-px"
-            style={{ background: "linear-gradient(90deg,transparent,rgba(214,189,151,0.5),transparent)" }}
-          />
-          <div className="relative z-10 flex flex-wrap items-start justify-between gap-4">
-            <div>
-              <Link
-                to="/dashboard"
-                className="inline-flex items-center gap-1.5 text-xs font-medium text-[#c9963f] transition-colors hover:text-[#d6bd97]"
-              >
-                <HiOutlineArrowLeft className="h-3.5 w-3.5" /> Dashboard
-              </Link>
-              <h1 className="mt-2 text-3xl font-bold tracking-tight text-white sm:text-4xl" style={inter}>Marketplace</h1>
-              <p className="mt-1 text-sm text-[#f4e6cd]/55">Buy and sell with fellow students on campus.</p>
-            </div>
-            <Link
-              to="/marketplace/new"
-              className="inline-flex h-11 items-center gap-2 rounded-2xl bg-gradient-to-r from-[#8f774b] to-[#c9963f] px-5 text-sm font-bold uppercase tracking-[0.06em] text-[#f4e6cd] shadow-[0_8px_24px_rgba(143,119,75,0.3)] transition-all duration-200 hover:-translate-y-0.5 hover:from-[#9c8352] hover:to-[#d6a24a]"
-            >
-              <HiOutlinePlusCircle className="h-4 w-4" /> Post an item
-            </Link>
-          </div>
-        </header>
+        <BrowseHeader
+          show={show}
+          icon={HiOutlineShoppingBag}
+          eyebrow="Campus marketplace"
+          title="Marketplace"
+          subtitle="Buy and sell with fellow students on campus."
+          loading={loading}
+          stats={[
+            { label: "Listings for sale", value: listings.length },
+            { label: "Posted today", value: postedToday },
+            { label: "Saved by you", value: savedIds.size },
+          ]}
+          cta={{ to: "/marketplace/new", label: "Post an item" }}
+        />
 
         {/* ── Filters ── */}
         <section
@@ -233,7 +238,7 @@ export default function Marketplace() {
               </div>
               <PriceFilter
                 currency={currencyFilter}
-                setCurrency={setCurrencyFilter}
+                setCurrency={pickCurrency}
                 minPrice={minPrice}
                 setMinPrice={setMinPrice}
                 maxPrice={maxPrice}
@@ -310,19 +315,56 @@ export default function Marketplace() {
             </button>
           </div>
         ) : (
-          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
-            {filtered.map((listing, i) => (
-              <ListingCard
-                key={listing.id}
-                listing={listing}
-                seller={profiles[listing.sellerId]}
-                saved={savedIds.has(listing.id)}
-                onToggleSave={handleToggleSave}
-                index={i}
-                show={show}
-              />
-            ))}
-          </div>
+          <>
+            <ResultsBar
+              count={filtered.length}
+              noun="listing"
+              sort={sort}
+              setSort={setSort}
+              priceSortable={currencyFilter !== "all"}
+              view={view}
+              setView={setView}
+            />
+            {view === "grid" ? (
+            <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
+              {filtered.map((listing, i) => (
+                <ListingCard
+                  key={listing.id}
+                  listing={listing}
+                  seller={profiles[listing.sellerId]}
+                  saved={savedIds.has(listing.id)}
+                  onToggleSave={handleToggleSave}
+                  index={i}
+                  show={show}
+                />
+              ))}
+            </div>
+            ) : (
+              <div className="flex flex-col gap-2">
+                {filtered.map((listing) => (
+                <PostRow
+                  key={listing.id}
+                  to={`/marketplace/${listing.id}`}
+                  photo={listing.photos?.[0]}
+                  fallback={
+                    <div className="flex h-full w-full items-center justify-center text-white/15">
+                      <HiOutlineShoppingBag className="h-7 w-7" />
+                    </div>
+                  }
+                  title={listing.title}
+                  price={formatPostPrice(listing)}
+                  tags={[conditionLabel(listing.condition), listing.negotiable ? "Negotiable" : ""].filter(Boolean)}
+                  person={profiles[listing.sellerId]}
+                  time={timeAgo(listing.createdAt?.toDate?.())}
+                  isNew={isNewPost(listing)}
+                  saved={savedIds.has(listing.id)}
+                  onToggleSave={(e) => handleToggleSave(e, listing.id)}
+                  saveLabel="Save listing"
+                />
+                ))}
+              </div>
+            )}
+          </>
         )}
       </div>
 
@@ -379,6 +421,8 @@ function ListingCard({ listing, seller, saved, onToggleSave, index, show }) {
             <HiOutlineShoppingBag className="h-10 w-10" />
           </div>
         )}
+
+        {isNewPost(listing) && <NewBadge className="absolute left-2 top-2" />}
 
         <span className="absolute bottom-2 left-2 rounded-full bg-gradient-to-r from-[#8f774b] to-[#c9963f] px-2.5 py-1 text-xs font-bold text-[#f4e6cd] shadow-[0_4px_14px_rgba(0,0,0,0.35)]">
           {formatPostPrice(listing)}

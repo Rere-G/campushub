@@ -9,7 +9,6 @@ import {
   HiOutlinePlusCircle,
   HiOutlineBookmark,
   HiBookmark,
-  HiOutlineArrowLeft,
   HiOutlineExclamationTriangle,
   HiOutlineXMark,
 } from "react-icons/hi2";
@@ -18,6 +17,9 @@ import dashboardBg from "../assets/dashboard-bg.jpg";
 import { SERVICE_CATEGORIES, serviceCategoryEmoji, serviceCategoryLabel } from "../constants/serviceCategories";
 import { saveIdFor, toggleSave } from "../utils/saves";
 import PriceFilter from "../components/PriceFilter";
+import BrowseHeader from "../components/BrowseHeader";
+import { NewBadge, PostRow, ResultsBar } from "../components/BrowseControls";
+import { isNewPost, sortPosts, useBrowseView } from "../utils/browse";
 import { currencyOf, formatPostPrice } from "../utils/postDetails";
 
 const inter = { fontFamily: "'Inter', sans-serif" };
@@ -57,6 +59,8 @@ export default function Services() {
   const [currencyFilter, setCurrencyFilter] = useState("all");
   const [minPrice, setMinPrice] = useState("");
   const [maxPrice, setMaxPrice] = useState("");
+  const [sort, setSort] = useState("newest");
+  const [view, setView] = useBrowseView("services");
 
   const [popup, setPopup] = useState({ show: false, text: "", ok: true });
   const toast = (text, ok = true) => {
@@ -114,7 +118,12 @@ export default function Services() {
   }, [navigate]);
 
   const hasActiveFilters =
-    tab !== "all" || search.trim() !== "" || currencyFilter !== "all" || minPrice !== "" || maxPrice !== "";
+    tab !== "all" ||
+    search.trim() !== "" ||
+    currencyFilter !== "all" ||
+    minPrice !== "" ||
+    maxPrice !== "" ||
+    sort !== "newest";
 
   const clearFilters = () => {
     setTab("all");
@@ -122,13 +131,20 @@ export default function Services() {
     setCurrencyFilter("all");
     setMinPrice("");
     setMaxPrice("");
+    setSort("newest");
+  };
+
+  // Ks and $ can't be compared, so price sorting needs one currency picked.
+  const pickCurrency = (c) => {
+    setCurrencyFilter(c);
+    if (c === "all") setSort("newest");
   };
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
     const min = minPrice !== "" ? Number(minPrice) : null;
     const max = maxPrice !== "" ? Number(maxPrice) : null;
-    return services
+    const list = services
       .filter((s) => tab === "all" || s.category === tab)
       .filter(
         (s) =>
@@ -139,9 +155,13 @@ export default function Services() {
       )
       .filter((s) => currencyFilter === "all" || currencyOf(s) === currencyFilter)
       .filter((s) => min === null || s.price >= min)
-      .filter((s) => max === null || s.price <= max)
-      .sort((a, b) => (b.createdAt?.toMillis?.() || 0) - (a.createdAt?.toMillis?.() || 0));
-  }, [services, profiles, tab, search, currencyFilter, minPrice, maxPrice]);
+      .filter((s) => max === null || s.price <= max);
+    return sortPosts(list, sort);
+  }, [services, profiles, tab, search, currencyFilter, minPrice, maxPrice, sort]);
+
+  // Header stats, from the services already loaded.
+  const postedToday = useMemo(() => services.filter(isNewPost).length, [services]);
+  const providerCount = useMemo(() => new Set(services.map((s) => s.providerId)).size, [services]);
 
   const handleToggleSave = async (e, serviceId) => {
     e.preventDefault();
@@ -189,34 +209,20 @@ export default function Services() {
 
       <div className="relative z-10 mx-auto max-w-6xl px-4 py-6 sm:px-6">
         {/* ── Header ── */}
-        <header
-          className={`${card} mb-5 px-6 py-5 transition-all duration-700 ${
-            show ? "translate-y-0 opacity-100" : "-translate-y-6 opacity-0"
-          }`}
-        >
-          <div
-            className="pointer-events-none absolute inset-x-0 top-0 h-px"
-            style={{ background: "linear-gradient(90deg,transparent,rgba(214,189,151,0.5),transparent)" }}
-          />
-          <div className="relative z-10 flex flex-wrap items-start justify-between gap-4">
-            <div>
-              <Link
-                to="/dashboard"
-                className="inline-flex items-center gap-1.5 text-xs font-medium text-[#c9963f] transition-colors hover:text-[#d6bd97]"
-              >
-                <HiOutlineArrowLeft className="h-3.5 w-3.5" /> Dashboard
-              </Link>
-              <h1 className="mt-2 text-3xl font-bold tracking-tight text-white sm:text-4xl" style={inter}>Services</h1>
-              <p className="mt-1 text-sm text-[#f4e6cd]/55">Find tutoring, repairs, design and more from students on campus.</p>
-            </div>
-            <Link
-              to="/services/new"
-              className="inline-flex h-11 items-center gap-2 rounded-2xl bg-gradient-to-r from-[#8f774b] to-[#c9963f] px-5 text-sm font-bold uppercase tracking-[0.06em] text-[#f4e6cd] shadow-[0_8px_24px_rgba(143,119,75,0.3)] transition-all duration-200 hover:-translate-y-0.5 hover:from-[#9c8352] hover:to-[#d6a24a]"
-            >
-              <HiOutlinePlusCircle className="h-4 w-4" /> Offer a service
-            </Link>
-          </div>
-        </header>
+        <BrowseHeader
+          show={show}
+          icon={HiOutlineWrenchScrewdriver}
+          eyebrow="Student services"
+          title="Services"
+          subtitle="Find tutoring, repairs, design and more from students on campus."
+          loading={loading}
+          stats={[
+            { label: "Services offered", value: services.length },
+            { label: "Student providers", value: providerCount },
+            { label: "Posted today", value: postedToday },
+          ]}
+          cta={{ to: "/services/new", label: "Offer a service" }}
+        />
 
         {/* ── Filters ── */}
         <section
@@ -238,7 +244,7 @@ export default function Services() {
               </div>
               <PriceFilter
                 currency={currencyFilter}
-                setCurrency={setCurrencyFilter}
+                setCurrency={pickCurrency}
                 minPrice={minPrice}
                 setMinPrice={setMinPrice}
                 maxPrice={maxPrice}
@@ -315,19 +321,60 @@ export default function Services() {
             </button>
           </div>
         ) : (
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
-            {filtered.map((service, i) => (
-              <ServiceCard
-                key={service.id}
-                service={service}
-                provider={profiles[service.providerId]}
-                saved={savedIds.has(service.id)}
-                onToggleSave={handleToggleSave}
-                index={i}
-                show={show}
-              />
-            ))}
-          </div>
+          <>
+            <ResultsBar
+              count={filtered.length}
+              noun="service"
+              sort={sort}
+              setSort={setSort}
+              priceSortable={currencyFilter !== "all"}
+              view={view}
+              setView={setView}
+            />
+            {view === "grid" ? (
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+              {filtered.map((service, i) => (
+                <ServiceCard
+                  key={service.id}
+                  service={service}
+                  provider={profiles[service.providerId]}
+                  saved={savedIds.has(service.id)}
+                  onToggleSave={handleToggleSave}
+                  index={i}
+                  show={show}
+                />
+              ))}
+            </div>
+            ) : (
+              <div className="flex flex-col gap-2">
+                {filtered.map((service) => (
+                <PostRow
+                  key={service.id}
+                  to={`/services/${service.id}`}
+                  photo={service.photos?.[0]}
+                  fallback={
+                    <div
+                      className="flex h-full w-full items-center justify-center text-3xl"
+                      style={{ background: "linear-gradient(135deg,#3a2a14 0%,#8f774b 55%,#c9963f 100%)" }}
+                      aria-hidden="true"
+                    >
+                      {serviceCategoryEmoji(service.category)}
+                    </div>
+                  }
+                  title={service.title}
+                  price={formatPostPrice(service)}
+                  tags={[serviceCategoryLabel(service.category), service.negotiable ? "Negotiable" : ""].filter(Boolean)}
+                  person={profiles[service.providerId]}
+                  time={timeAgo(service.createdAt?.toDate?.())}
+                  isNew={isNewPost(service)}
+                  saved={savedIds.has(service.id)}
+                  onToggleSave={(e) => handleToggleSave(e, service.id)}
+                  saveLabel="Save service"
+                />
+                ))}
+              </div>
+            )}
+          </>
         )}
       </div>
 
@@ -394,6 +441,8 @@ function ServiceCard({ service, provider, saved, onToggleSave, index, show }) {
             </span>
           </div>
         )}
+
+        {isNewPost(service) && <NewBadge className="absolute left-2 top-2" />}
 
         <span className="absolute bottom-2 left-2 rounded-full bg-black/60 px-2.5 py-1 text-xs font-bold text-[#f4e6cd] backdrop-blur-sm">
           {formatPostPrice(service)}
