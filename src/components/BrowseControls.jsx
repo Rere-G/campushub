@@ -1,5 +1,5 @@
 import { Link } from "react-router-dom";
-import { HiBookmark, HiOutlineBookmark, HiOutlineListBullet, HiOutlineSquares2X2 } from "react-icons/hi2";
+import { HiBookmark, HiOutlineBookmark, HiOutlineEye, HiOutlineListBullet, HiOutlineSquares2X2 } from "react-icons/hi2";
 import CategorySelect from "./CategorySelect";
 
 // Stage 18a-1: shared browse tools for Marketplace and Services —
@@ -73,7 +73,7 @@ function Tag({ children }) {
 }
 
 // One compact row in List view.
-export function PostRow({ to, photo, fallback, title, price, tags = [], person, time, isNew, saved, onToggleSave, saveLabel }) {
+export function PostRow({ to, photo, fallback, title, price, tags = [], person, time, isNew, saved, onToggleSave, saveLabel, onQuickView }) {
   const initial = (person?.name || "?").trim().charAt(0).toUpperCase() || "?";
   return (
     <Link
@@ -111,6 +111,17 @@ export function PostRow({ to, photo, fallback, title, price, tags = [], person, 
         </div>
       </div>
 
+      {onQuickView && (
+        <button
+          type="button"
+          onClick={onQuickView}
+          aria-label={`Quick view: ${title}`}
+          title="Quick view"
+          className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-white/10 bg-white/[0.04] text-white/70 transition-all hover:border-[#c9963f]/40 hover:text-[#d6bd97]"
+        >
+          <HiOutlineEye className="h-4 w-4" />
+        </button>
+      )}
       <button
         type="button"
         onClick={onToggleSave}

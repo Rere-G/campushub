@@ -1,9 +1,10 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { usePageTitle } from "../utils/pageTitle";
 import { Link, useNavigate } from "react-router-dom";
 import { onAuthStateChanged } from "firebase/auth";
 import { collection, doc, getDoc, getDocs } from "firebase/firestore";
 import {
+  HiOutlineEye,
   HiOutlineWrenchScrewdriver,
   HiOutlineMagnifyingGlass,
   HiOutlinePlusCircle,
@@ -19,6 +20,7 @@ import { saveIdFor, toggleSave } from "../utils/saves";
 import PriceFilter from "../components/PriceFilter";
 import BrowseHeader from "../components/BrowseHeader";
 import { NewBadge, PostRow, ResultsBar } from "../components/BrowseControls";
+import QuickView from "../components/QuickView";
 import { isNewPost, sortPosts, useBrowseView } from "../utils/browse";
 import { currencyOf, formatPostPrice } from "../utils/postDetails";
 
@@ -60,6 +62,14 @@ export default function Services() {
   const [minPrice, setMinPrice] = useState("");
   const [maxPrice, setMaxPrice] = useState("");
   const [sort, setSort] = useState("newest");
+  const [quickId, setQuickId] = useState(null);
+  const quickItem = quickId ? services.find((x) => x.id === quickId) : null;
+  const openQuick = (e, id) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setQuickId(id);
+  };
+  const closeQuick = useCallback(() => setQuickId(null), []);
   const [view, setView] = useBrowseView("services");
 
   const [popup, setPopup] = useState({ show: false, text: "", ok: true });
@@ -340,6 +350,7 @@ export default function Services() {
                   provider={profiles[service.providerId]}
                   saved={savedIds.has(service.id)}
                   onToggleSave={handleToggleSave}
+                  onQuickView={openQuick}
                   index={i}
                   show={show}
                 />
@@ -369,6 +380,7 @@ export default function Services() {
                   isNew={isNewPost(service)}
                   saved={savedIds.has(service.id)}
                   onToggleSave={(e) => handleToggleSave(e, service.id)}
+                  onQuickView={(e) => openQuick(e, service.id)}
                   saveLabel="Save service"
                 />
                 ))}
@@ -377,6 +389,19 @@ export default function Services() {
           </>
         )}
       </div>
+
+      {quickItem && (
+        <QuickView
+          item={quickItem}
+          kind="service"
+          person={profiles[quickItem.providerId]}
+          uid={uid}
+          saved={savedIds.has(quickItem.id)}
+          onToggleSave={(e) => handleToggleSave(e, quickItem.id)}
+          time={timeAgo(quickItem.createdAt?.toDate?.())}
+          onClose={closeQuick}
+        />
+      )}
 
       {popup.show && (
         <div
@@ -407,7 +432,7 @@ export default function Services() {
 // Provider-forward card: the person is the headline (large avatar + name
 // directly under the media), the service title and category follow.
 // A service with no photo gets a big category emoji on a warm gradient.
-function ServiceCard({ service, provider, saved, onToggleSave, index, show }) {
+function ServiceCard({ service, provider, saved, onToggleSave, index, show, onQuickView }) {
   const photo = service.photos && service.photos[0];
   const delay = Math.min(index, 11) * 35;
   const name = provider?.name || "Student";
@@ -456,6 +481,16 @@ function ServiceCard({ service, provider, saved, onToggleSave, index, show }) {
           className="absolute right-2 top-2 flex h-8 w-8 items-center justify-center rounded-full bg-black/55 text-white backdrop-blur-sm transition-all duration-150 hover:scale-110 hover:bg-black/70"
         >
           {saved ? <HiBookmark className="h-4 w-4 text-[#d6bd97]" /> : <HiOutlineBookmark className="h-4 w-4" />}
+        </button>
+
+        <button
+          type="button"
+          onClick={(e) => onQuickView(e, service.id)}
+          aria-label={`Quick view: ${service.title}`}
+          title="Quick view"
+          className="absolute right-2 top-12 flex h-8 w-8 items-center justify-center rounded-full bg-black/55 text-white backdrop-blur-sm transition-all duration-150 hover:scale-110 hover:bg-black/70 sm:opacity-0 sm:group-hover:opacity-100 sm:focus-visible:opacity-100"
+        >
+          <HiOutlineEye className="h-4 w-4" />
         </button>
       </div>
 
