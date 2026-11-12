@@ -157,7 +157,7 @@ export const OFFER_MAX = 100000000;
 export const formatKs = (n) => new Intl.NumberFormat("en-US").format(Number(n) || 0);
 
 // A price offer in whole Kyat. Same batch pattern as sendText.
-export async function sendOffer({ conv, uid, amount }) {
+export async function sendOffer({ conv, uid, amount, currency = "MMK" }) {
   const value = Math.round(Number(amount));
   if (!Number.isInteger(value) || value < 1 || value > OFFER_MAX) throw new Error("bad amount");
   const convRef = doc(db, "conversations", conv.id);
@@ -165,7 +165,7 @@ export async function sendOffer({ conv, uid, amount }) {
   const batch = writeBatch(db);
   batch.set(msgRef, { senderId: uid, type: "offer", amount: value, status: "pending", createdAt: serverTimestamp() });
   batch.update(convRef, {
-    lastMessage: `Offer: Ks ${formatKs(value)}`,
+    lastMessage: `Offer: ${currency === "USD" ? "$" : "Ks "}${formatKs(value)}`,
     lastSenderId: uid,
     updatedAt: serverTimestamp(),
     [readFieldFor(conv, uid)]: serverTimestamp(),

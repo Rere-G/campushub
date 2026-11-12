@@ -21,10 +21,10 @@ import { saveIdFor, toggleSave } from "../utils/saves";
 import Comments from "../components/Comments";
 import ReportButton from "../components/ReportButton";
 import MessageButton from "../components/MessageButton";
+import PostFacts from "../components/PostFacts";
 
 const inter = { fontFamily: "'Inter', sans-serif" };
 
-const formatKs = (n) => new Intl.NumberFormat("en-US").format(Number(n) || 0);
 
 // Defined at module scope (not inside ServiceDetail) on purpose: a component
 // defined inside another component's body is a new type every render, which
@@ -309,7 +309,7 @@ export default function ServiceDetail() {
               {serviceCategoryLabel(service.category)}
             </span>
             <h1 className="mt-3 text-2xl font-bold text-white sm:text-3xl" style={inter}>{service.title}</h1>
-            <p className="mt-1.5 text-2xl font-bold text-[#d6bd97]">Ks {formatKs(service.price)}</p>
+            <PostFacts post={service} isListing={false} />
 
             <button
               type="button"

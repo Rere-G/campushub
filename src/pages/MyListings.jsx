@@ -20,9 +20,9 @@ import dashboardBg from "../assets/dashboard-bg.jpg";
 import { timeAgo } from "../utils/activity";
 import { setPostStatus } from "../utils/postStatus";
 import { serviceCategoryEmoji } from "../constants/serviceCategories";
+import { formatPostPrice } from "../utils/postDetails";
 
 const inter = { fontFamily: "'Inter', sans-serif" };
-const formatKs = (n) => new Intl.NumberFormat("en-US").format(Number(n) || 0);
 
 const card =
   "relative overflow-hidden rounded-[24px] border border-white/[0.08] bg-white/[0.04] backdrop-blur-xl shadow-[0_20px_60px_rgba(0,0,0,0.45)]";
@@ -95,6 +95,7 @@ export default function MyListings() {
             type,
             title: x.title || "Untitled",
             price: x.price,
+            currency: x.currency,
             status: x.status || "active",
             removedByAdmin: x.removedByAdmin === true,
             photo: (x.photos && x.photos[0]) || "",
@@ -388,7 +389,7 @@ function PostRow({ post, index, show, busy, confirming, onAsk, onCancel, onChang
           </div>
           <h3 className="mt-1.5 truncate text-[15px] font-semibold text-white" style={inter}>{post.title}</h3>
           <p className="mt-0.5 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-xs text-white/40">
-            <span className="font-semibold text-[#d6bd97]">Ks {formatKs(post.price)}</span>
+            <span className="font-semibold text-[#d6bd97]">{formatPostPrice(post)}</span>
             <span>Posted {timeAgo(post.createdAt)}</span>
             {post.questions != null && (
               <span className="inline-flex items-center gap-1">

@@ -9,7 +9,7 @@ import { createPortal } from "react-dom";
 //    overflow-hidden (needed to clip its rounded top accent bar) can never
 //    clip or cut off the open dropdown list, no matter where in the form
 //    this field sits or how little room is left below it.
-export default function CategorySelect({ value, onChange, options, inputClass }) {
+export default function CategorySelect({ value, onChange, options, inputClass, label = "" }) {
   const [open, setOpen] = useState(false);
   const [coords, setCoords] = useState(null);
   const buttonRef = useRef(null);
@@ -67,7 +67,8 @@ export default function CategorySelect({ value, onChange, options, inputClass })
         onClick={() => (open ? setOpen(false) : openDropdown())}
         aria-haspopup="listbox"
         aria-expanded={open}
-        className={`${inputClass} flex items-center justify-between text-left`}
+        aria-label={label ? `${label}: ${selected ? selected.label : "not selected"}` : undefined}
+        className={`${inputClass} flex items-center justify-between text-left hover:border-[#c9963f]/50`}
       >
         <span className={selected ? "" : "text-white/30"}>{selected ? selected.label : "Select…"}</span>
         <svg
@@ -102,7 +103,7 @@ export default function CategorySelect({ value, onChange, options, inputClass })
                   setOpen(false);
                 }}
                 className={`block w-full px-4 py-2.5 text-left text-sm transition-colors ${
-                  o.key === value ? "bg-[#c9963f]/15 text-[#d6bd97]" : "text-[#f4e6cd]/85 hover:bg-white/[0.06]"
+                  o.key === value ? "bg-[#c9963f]/15 text-[#d6bd97]" : "text-[#f4e6cd]/85 hover:bg-[#c9963f]/10 hover:text-[#d6bd97]"
                 }`}
               >
                 {o.label}

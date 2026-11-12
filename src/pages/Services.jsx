@@ -16,10 +16,11 @@ import { auth, db } from "../services/firebase";
 import dashboardBg from "../assets/dashboard-bg.jpg";
 import { SERVICE_CATEGORIES, serviceCategoryEmoji, serviceCategoryLabel } from "../constants/serviceCategories";
 import { saveIdFor, toggleSave } from "../utils/saves";
+import PriceFilter from "../components/PriceFilter";
+import { currencyOf, formatPostPrice } from "../utils/postDetails";
 
 const inter = { fontFamily: "'Inter', sans-serif" };
 
-const formatKs = (n) => new Intl.NumberFormat("en-US").format(Number(n) || 0);
 
 const timeAgo = (date) => {
   if (!date) return "";
@@ -51,6 +52,7 @@ export default function Services() {
 
   const [tab, setTab] = useState("all");
   const [search, setSearch] = useState("");
+  const [currencyFilter, setCurrencyFilter] = useState("all");
   const [minPrice, setMinPrice] = useState("");
   const [maxPrice, setMaxPrice] = useState("");
 
@@ -109,11 +111,13 @@ export default function Services() {
     };
   }, [navigate]);
 
-  const hasActiveFilters = tab !== "all" || search.trim() !== "" || minPrice !== "" || maxPrice !== "";
+  const hasActiveFilters =
+    tab !== "all" || search.trim() !== "" || currencyFilter !== "all" || minPrice !== "" || maxPrice !== "";
 
   const clearFilters = () => {
     setTab("all");
     setSearch("");
+    setCurrencyFilter("all");
     setMinPrice("");
     setMaxPrice("");
   };
@@ -131,10 +135,11 @@ export default function Services() {
           (s.description || "").toLowerCase().includes(q) ||
           (profiles[s.providerId]?.name || "").toLowerCase().includes(q)
       )
+      .filter((s) => currencyFilter === "all" || currencyOf(s) === currencyFilter)
       .filter((s) => min === null || s.price >= min)
       .filter((s) => max === null || s.price <= max)
       .sort((a, b) => (b.createdAt?.toMillis?.() || 0) - (a.createdAt?.toMillis?.() || 0));
-  }, [services, profiles, tab, search, minPrice, maxPrice]);
+  }, [services, profiles, tab, search, currencyFilter, minPrice, maxPrice]);
 
   const handleToggleSave = async (e, serviceId) => {
     e.preventDefault();
@@ -229,28 +234,14 @@ export default function Services() {
                   className="w-full rounded-2xl border border-[#d6bd97]/20 bg-[#090704]/70 py-3 pl-11 pr-4 text-sm text-[#f4e6cd] placeholder:text-white/30 outline-none transition focus:border-[#c9963f] focus:shadow-[0_0_0_4px_rgba(201,150,63,0.18)]"
                 />
               </div>
-              <div className="flex items-center gap-2">
-                <span className="text-xs font-medium text-[#f4e6cd]/40">Ks</span>
-                <input
-                  type="number"
-                  inputMode="decimal"
-                  min="0"
-                  value={minPrice}
-                  onChange={(e) => setMinPrice(e.target.value)}
-                  placeholder="Min"
-                  className="w-24 rounded-xl border border-[#d6bd97]/20 bg-[#090704]/70 px-3 py-2.5 text-sm text-[#f4e6cd] placeholder:text-white/30 outline-none transition focus:border-[#c9963f] focus:shadow-[0_0_0_4px_rgba(201,150,63,0.18)]"
-                />
-                <span className="text-xs text-[#f4e6cd]/30">–</span>
-                <input
-                  type="number"
-                  inputMode="decimal"
-                  min="0"
-                  value={maxPrice}
-                  onChange={(e) => setMaxPrice(e.target.value)}
-                  placeholder="Max"
-                  className="w-24 rounded-xl border border-[#d6bd97]/20 bg-[#090704]/70 px-3 py-2.5 text-sm text-[#f4e6cd] placeholder:text-white/30 outline-none transition focus:border-[#c9963f] focus:shadow-[0_0_0_4px_rgba(201,150,63,0.18)]"
-                />
-              </div>
+              <PriceFilter
+                currency={currencyFilter}
+                setCurrency={setCurrencyFilter}
+                minPrice={minPrice}
+                setMinPrice={setMinPrice}
+                maxPrice={maxPrice}
+                setMaxPrice={setMaxPrice}
+              />
             </div>
 
             <div className="flex items-center gap-2 overflow-x-auto pb-0.5 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
@@ -403,7 +394,7 @@ function ServiceCard({ service, provider, saved, onToggleSave, index, show }) {
         )}
 
         <span className="absolute bottom-2 left-2 rounded-full bg-black/60 px-2.5 py-1 text-xs font-bold text-[#f4e6cd] backdrop-blur-sm">
-          Ks {formatKs(service.price)}
+          {formatPostPrice(service)}
         </span>
 
         <button
@@ -432,7 +423,20 @@ function ServiceCard({ service, provider, saved, onToggleSave, index, show }) {
           <span className="shrink-0 self-start text-[10px] text-[#f4e6cd]/35">{timeAgo(service.createdAt?.toDate?.())}</span>
         </div>
         <h3 className="line-clamp-2 text-sm font-medium leading-snug text-[#f4e6cd]/85" style={inter}>{service.title}</h3>
+        {service.negotiable && (
+          <div className="flex">
+            <Tag>Negotiable</Tag>
+          </div>
+        )}
       </div>
     </Link>
+  );
+}
+
+function Tag({ children }) {
+  return (
+    <span className="rounded-md border border-white/[0.08] bg-white/[0.04] px-1.5 py-0.5 text-[10px] font-medium text-[#f4e6cd]/60">
+      {children}
+    </span>
   );
 }

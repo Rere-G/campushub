@@ -22,10 +22,10 @@ import { saveIdFor, toggleSave } from "../utils/saves";
 import Comments from "../components/Comments";
 import ReportButton from "../components/ReportButton";
 import MessageButton from "../components/MessageButton";
+import PostFacts from "../components/PostFacts";
 
 const inter = { fontFamily: "'Inter', sans-serif" };
 
-const formatKs = (n) => new Intl.NumberFormat("en-US").format(Number(n) || 0);
 
 // Defined at module scope (not inside ListingDetail) on purpose: a component
 // defined inside another component's body gets a new function identity every
@@ -312,7 +312,7 @@ export default function ListingDetail() {
               {categoryLabel(listing.category)}
             </span>
             <h1 className="mt-3 text-2xl font-bold text-white sm:text-3xl" style={inter}>{listing.title}</h1>
-            <p className="mt-1.5 text-2xl font-bold text-[#d6bd97]">Ks {formatKs(listing.price)}</p>
+            <PostFacts post={listing} isListing />
 
             <button
               type="button"

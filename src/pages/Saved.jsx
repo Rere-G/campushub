@@ -15,10 +15,10 @@ import dashboardBg from "../assets/dashboard-bg.jpg";
 import { toggleSave } from "../utils/saves";
 import { timeAgo } from "../utils/activity";
 import { serviceCategoryEmoji } from "../constants/serviceCategories";
+import { formatPostPrice } from "../utils/postDetails";
 
 const inter = { fontFamily: "'Inter', sans-serif" };
 
-const formatKs = (n) => new Intl.NumberFormat("en-US").format(Number(n) || 0);
 
 const card =
   "relative overflow-hidden rounded-[24px] border border-white/[0.08] bg-white/[0.04] backdrop-blur-xl shadow-[0_20px_60px_rgba(0,0,0,0.45)]";
@@ -295,7 +295,7 @@ function SavedCard({ row, index, show, busy, onUnsave }) {
 
         {item && state.kind !== "gone" && (
           <span className="absolute bottom-2 left-2 rounded-full bg-gradient-to-r from-[#8f774b] to-[#c9963f] px-2.5 py-1 text-xs font-bold text-[#f4e6cd] shadow-[0_4px_14px_rgba(0,0,0,0.35)]">
-            Ks {formatKs(item.price)}
+            {formatPostPrice(item)}
           </span>
         )}
 

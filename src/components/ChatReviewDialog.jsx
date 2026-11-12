@@ -4,9 +4,9 @@ import { collection, doc, getDoc, getDocs, limit, orderBy, query } from "firebas
 import { HiOutlineExclamationTriangle, HiOutlineXMark } from "react-icons/hi2";
 import { db } from "../services/firebase";
 import { spotLabel } from "../utils/chat";
+import { currencyOf, formatPrice } from "../utils/postDetails";
 
 const inter = { fontFamily: "'Inter', sans-serif" };
-const formatKs = (n) => new Intl.NumberFormat("en-US").format(Number(n) || 0);
 const when = (d) =>
   d ? d.toLocaleString([], { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }) : "";
 
@@ -15,6 +15,7 @@ const when = (d) =>
 // reported it, so this works from the Reports tab and nowhere else.
 export default function ChatReviewDialog({ convId, highlightId, nameOf, onClose }) {
   const [conv, setConv] = useState(null);
+  const [currency, setCurrency] = useState("MMK");
   const [messages, setMessages] = useState([]);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState(false);
@@ -29,6 +30,12 @@ export default function ChatReviewDialog({ convId, highlightId, nameOf, onClose 
         ]);
         if (!alive) return;
         setConv(c.exists() ? c.data() : null);
+        if (c.exists()) {
+          const cd = c.data();
+          getDoc(doc(db, cd.itemType === "service" ? "services" : "listings", cd.itemId))
+            .then((it) => alive && it.exists() && setCurrency(currencyOf(it.data())))
+            .catch(() => {});
+        }
         setMessages(m.docs.map((d) => ({ id: d.id, ...d.data(), at: d.data().createdAt?.toDate?.() ?? null })));
       } catch (e) {
         console.error("Chat review load failed:", e);
@@ -55,7 +62,7 @@ export default function ChatReviewDialog({ convId, highlightId, nameOf, onClose 
 
   const body = (m) => {
     if (m.deleted) return <em className="text-white/40">{m.removedByAdmin ? "Removed by a moderator" : "Deleted by the sender"}</em>;
-    if (m.type === "offer") return `Offer: Ks ${formatKs(m.amount)} (${m.status})`;
+    if (m.type === "offer") return `Offer: ${formatPrice(m.amount, currency)} (${m.status})`;
     if (m.type === "meeting") return `Meetup: ${spotLabel(m.spot)}, ${when(m.meetAt?.toDate?.())} (${m.status})`;
     return m.text;
   };

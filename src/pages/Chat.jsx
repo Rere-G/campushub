@@ -25,6 +25,7 @@ import {
 import { auth, db } from "../services/firebase";
 import { ReportDialog } from "../components/ReportButton";
 import { hasReportedChat, submitChatReport } from "../utils/reports";
+import { currencyOf, formatPostPrice, formatPrice } from "../utils/postDetails";
 import {
   MEETING_SPOTS,
   MEET_MAX_DAYS,
@@ -51,7 +52,6 @@ import {
 } from "../utils/chat";
 
 const inter = { fontFamily: "'Inter', sans-serif" };
-const formatKs = (n) => new Intl.NumberFormat("en-US").format(Number(n) || 0);
 const timeOfDay = (d) => (d ? d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "");
 const monthYear = (d) => (d ? d.toLocaleDateString([], { month: "short", year: "numeric" }) : "");
 const GROUP_GAP_MS = 5 * 60 * 1000;
@@ -334,7 +334,7 @@ export default function Chat() {
     setSending(true);
     try {
       nearBottom.current = true;
-      await sendOffer({ conv, uid, amount: offerValue });
+      await sendOffer({ conv, uid, amount: offerValue, currency: currencyOf(item) });
       setOfferOpen(false);
       setOfferAmount("");
     } catch (err) {
@@ -603,7 +603,7 @@ export default function Chat() {
             <span className="min-w-0">
               <span className="block truncate text-[13px] font-semibold text-white">{itemTitle}</span>
               <span className="block truncate text-[11px] text-white/45">
-                {item?.missing ? "No longer available" : item ? `Ks ${formatKs(item.price)} · ${STATUS_TEXT[item.status] || "Available"}` : "…"}
+                {item?.missing ? "No longer available" : item ? `${formatPostPrice(item)} · ${STATUS_TEXT[item.status] || "Available"}` : "…"}
               </span>
             </span>
           </Link>
@@ -636,7 +636,7 @@ export default function Chat() {
                 <ItemThumb photo={itemPhoto} isListing={isListing} size="h-20 w-20" rounded="rounded-xl" />
               </div>
               <p className="mt-3 truncate text-sm font-semibold text-white">{itemTitle}</p>
-              {item && !item.missing && <p className="mt-0.5 text-sm font-semibold text-[#d6bd97]">Ks {formatKs(item.price)}</p>}
+              {item && !item.missing && <p className="mt-0.5 text-sm font-semibold text-[#d6bd97]">{formatPostPrice(item)}</p>}
               <p className="mt-2 text-xs text-white/40">You're chatting with {otherFirst} about this {noun}.</p>
             </div>
           )}
@@ -689,6 +689,7 @@ export default function Chat() {
                             onAnswer={(st) => answer(m, st)}
                             onProposeMeetup={() => !meetOpen && openMeet()}
                             receipt={receiptFor?.id === m.id ? receiptFor.text : ""}
+                            currency={currencyOf(item)}
                           />
                         ))}
                       </div>
@@ -813,7 +814,7 @@ export default function Chat() {
             <div className="flex flex-wrap items-center gap-2">
               <label htmlFor="offer-amount" className="text-sm font-semibold text-white/80">Your offer</label>
               <div className="flex h-10 min-w-0 flex-1 items-center rounded-xl border border-[#d6bd97]/20 bg-[#090704]/80 px-3 focus-within:border-[#c9963f]">
-                <span className="mr-2 text-sm text-white/40">Ks</span>
+                <span className="mr-2 text-sm text-white/40">{currencyOf(item) === "USD" ? "$" : "Ks"}</span>
                 <input
                   id="offer-amount"
                   inputMode="numeric"
@@ -837,7 +838,7 @@ export default function Chat() {
               </button>
             </div>
             {item && !item.missing && item.price ? (
-              <p className="mt-2 text-xs text-white/40">Asking price: Ks {formatKs(item.price)}</p>
+              <p className="mt-2 text-xs text-white/40">Asking price: {formatPostPrice(item)}</p>
             ) : null}
           </div>
         )}
@@ -1068,7 +1069,7 @@ function ReactionBadges({ reactions, uid, onToggle, mine }) {
   );
 }
 
-function MessageRow({ m, uid, now, mine, first, last, highlighted, nameOf, onReply, onEdit, onDelete, onReact, onLongPress, onJump, onAnswer, onProposeMeetup, receipt }) {
+function MessageRow({ m, uid, now, mine, first, last, highlighted, nameOf, onReply, onEdit, onDelete, onReact, onLongPress, onJump, onAnswer, onProposeMeetup, receipt, currency }) {
   const [reactOpen, setReactOpen] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const press = useRef(null);
@@ -1083,7 +1084,7 @@ function MessageRow({ m, uid, now, mine, first, last, highlighted, nameOf, onRep
     return <MeetingCard m={m} mine={mine} now={now} nameOf={nameOf} onAnswer={onAnswer} receipt={receipt} />;
   }
   if (m.type === "offer") {
-    return <OfferCard m={m} mine={mine} nameOf={nameOf} onAnswer={onAnswer} onProposeMeetup={onProposeMeetup} receipt={receipt} />;
+    return <OfferCard m={m} mine={mine} nameOf={nameOf} onAnswer={onAnswer} onProposeMeetup={onProposeMeetup} receipt={receipt} currency={currency} />;
   }
   if (m.type !== "text") return null;
 
@@ -1256,14 +1257,14 @@ function MeetingCard({ m, mine, now, nameOf, onAnswer, receipt }) {
 }
 
 // Price offer card. The other person accepts/declines; the sender may cancel.
-function OfferCard({ m, mine, nameOf, onAnswer, onProposeMeetup, receipt }) {
+function OfferCard({ m, mine, nameOf, onAnswer, onProposeMeetup, receipt, currency }) {
   const [busy, setBusy] = useState(false);
   const act = async (status) => {
     setBusy(true);
     await onAnswer(status);
     setBusy(false);
   };
-  const amount = `Ks ${formatKs(m.amount)}`;
+  const amount = formatPrice(m.amount, currency);
   const statusText = {
     pending: mine ? "Waiting for a reply" : `${nameOf(m.senderId)} made an offer`,
     accepted: "Accepted",

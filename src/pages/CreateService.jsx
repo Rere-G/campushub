@@ -8,6 +8,8 @@ import { SERVICE_CATEGORIES } from "../constants/serviceCategories";
 import CategorySelect from "../components/CategorySelect";
 import PhotoSlot from "../components/PhotoSlot";
 import { ensurePublicProfile } from "../utils/publicProfile";
+import { DetailsFields, PriceField } from "../components/PostDetailsFields";
+import { PRICE_MAX } from "../utils/postDetails";
 
 const inter = { fontFamily: "'Inter', sans-serif" };
 
@@ -21,12 +23,6 @@ const MAX_PHOTOS = 3;
 const TITLE_MAX = 80;
 const DESCRIPTION_MAX = 600;
 
-const formatKs = (n) => {
-  const num = Number(n);
-  if (!num || num <= 0) return null;
-  return new Intl.NumberFormat("en-US").format(num);
-};
-
 export default function CreateService() {
   const navigate = useNavigate();
   const [show, setShow] = useState(false);
@@ -34,6 +30,11 @@ export default function CreateService() {
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [price, setPrice] = useState("");
+  // Stage 16 details. Currency is the seller's choice per post (not the app language).
+  const [currency, setCurrency] = useState("MMK");
+  const [condition, setCondition] = useState("");
+  const [meetupSpot, setMeetupSpot] = useState("flexible");
+  const [negotiable, setNegotiable] = useState(false);
   const [category, setCategory] = useState("");
   const [photos, setPhotos] = useState([null, null, null]); // slot values: null | { url, uploading }
   const [submitting, setSubmitting] = useState(false);
@@ -52,7 +53,6 @@ export default function CreateService() {
 
   const filledPhotoCount = photos.filter((p) => p && p.url).length;
   const anyUploading = photos.some((p) => p && p.uploading);
-  const formattedPrice = formatKs(price);
 
   const handlePhotoChange = async (slotIndex, e) => {
     const file = e.target.files && e.target.files[0];
@@ -125,12 +125,13 @@ export default function CreateService() {
 
     const trimmedTitle = title.trim();
     const trimmedDescription = description.trim();
-    const priceNum = Number(price);
+    const priceNum = Math.round(Number(price)); // whole numbers only (firestore.rules)
     const photoUrls = photos.filter((p) => p && p.url).map((p) => p.url);
 
     if (!trimmedTitle) return showPopup("Give your service a title.", false);
     if (!trimmedDescription) return showPopup("Add a short description.", false);
     if (!price || !(priceNum > 0)) return showPopup("Enter a price greater than 0.", false);
+    if (priceNum > PRICE_MAX) return showPopup("That price is too high.", false);
     if (!category) return showPopup("Pick a category.", false);
     if (photoUrls.length > MAX_PHOTOS) return showPopup(`Only ${MAX_PHOTOS} photos allowed.`, false);
 
@@ -141,6 +142,9 @@ export default function CreateService() {
         title: trimmedTitle,
         description: trimmedDescription,
         price: priceNum,
+        currency,
+        meetupSpot,
+        negotiable,
         category,
         photos: photoUrls,
         status: "active",
@@ -282,33 +286,32 @@ export default function CreateService() {
                 </div>
 
                 <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <label className={labelClass}>Price</label>
-                    <div className="relative">
-                      <span className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-sm font-semibold text-[#d6bd97]/70">
-                        Ks
-                      </span>
-                      <input
-                        type="number"
-                        inputMode="decimal"
-                        min="0"
-                        step="any"
-                        value={price}
-                        onChange={(e) => setPrice(e.target.value)}
-                        placeholder="0"
-                        className={`${inputClass} pl-10`}
-                      />
-                    </div>
-                    <p className="mt-1.5 h-4 text-[11px] text-[#f4e6cd]/40">
-                      {formattedPrice ? `= Ks ${formattedPrice}` : " "}
-                    </p>
-                  </div>
+                  <PriceField
+                    price={price}
+                    setPrice={setPrice}
+                    currency={currency}
+                    setCurrency={setCurrency}
+                    inputClass={inputClass}
+                    labelClass={labelClass}
+                  />
                   <div>
                     <label className={labelClass}>Category</label>
                     <CategorySelect value={category} onChange={setCategory} options={SERVICE_CATEGORIES} inputClass={inputClass} />
                     <p className="mt-1.5 h-4 text-[11px] text-[#f4e6cd]/40">&nbsp;</p>
                   </div>
                 </div>
+
+                <DetailsFields
+                  isListing={false}
+                  condition={condition}
+                  setCondition={setCondition}
+                  meetupSpot={meetupSpot}
+                  setMeetupSpot={setMeetupSpot}
+                  negotiable={negotiable}
+                  setNegotiable={setNegotiable}
+                  inputClass={inputClass}
+                  labelClass={labelClass}
+                />
 
                 <div>
                   <label className={labelClass}>

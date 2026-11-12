@@ -11,13 +11,13 @@ import {
   HiOutlineLockClosed,
 } from "react-icons/hi2";
 import { db } from "../services/firebase";
+import { formatPostPrice } from "../utils/postDetails";
 import { REMOVAL_REASONS, notifyPostRemoved } from "../utils/notifications";
 import { categoryLabel } from "../constants/categories";
 import { serviceCategoryEmoji, serviceCategoryLabel } from "../constants/serviceCategories";
 
 const inter = { fontFamily: "'Inter', sans-serif" };
 
-const formatKs = (n) => new Intl.NumberFormat("en-US").format(Number(n) || 0);
 
 const timeAgo = (date) => {
   if (!date) return "";
@@ -276,7 +276,7 @@ export default function PostsPanel({ users, toast }) {
                     </span>
                   </div>
                   <p className="mt-1 truncate text-xs text-[#f4e6cd]/50">
-                    Ks {formatKs(p.price)} · {p.kind === "listing" ? categoryLabel(p.category) : serviceCategoryLabel(p.category)}
+                    {formatPostPrice(p)} · {p.kind === "listing" ? categoryLabel(p.category) : serviceCategoryLabel(p.category)}
                   </p>
                   <p className="mt-0.5 truncate text-xs text-[#f4e6cd]/40">
                     {nameOf(owner)}
