@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { usePageTitle } from "../utils/pageTitle";
 import { Link, useNavigate } from "react-router-dom";
 import { onAuthStateChanged } from "firebase/auth";
 import { collection, doc, getDoc, getDocs } from "firebase/firestore";
@@ -40,6 +41,7 @@ const timeAgo = (date) => {
 const TABS = [{ key: "all", label: "All" }, ...SERVICE_CATEGORIES];
 
 export default function Services() {
+  usePageTitle("Services");
   const navigate = useNavigate();
   const [show, setShow] = useState(false);
   const [uid, setUid] = useState(null);

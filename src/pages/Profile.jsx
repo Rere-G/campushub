@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { usePageTitle } from "../utils/pageTitle";
 import { Link, useNavigate } from "react-router-dom";
 import { onAuthStateChanged } from "firebase/auth";
 import { doc, getDoc, updateDoc, setDoc, serverTimestamp } from "firebase/firestore";
@@ -38,6 +39,7 @@ const formatMemberSince = (createdAt) => {
 };
 
 export default function Profile() {
+  usePageTitle("Profile");
   const navigate = useNavigate();
   const [user, setUser] = useState(null);
   const [profile, setProfile] = useState(null);

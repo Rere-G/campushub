@@ -17,6 +17,7 @@ import {
 } from "react-icons/hi2";
 import { useActivity } from "../utils/activity";
 import { useConversations } from "../utils/conversations";
+import { useTitleBadge } from "../utils/pageTitle";
 
 const inter = { fontFamily: "'Inter', sans-serif" };
 const COLLAPSE_KEY = "ch.sidebar.collapsed";
@@ -63,6 +64,7 @@ export default function AppShell({ account, onLogout, loggingOut, children }) {
   const unread = items.filter((a) => !seenAt || (a.createdAt && a.createdAt > seenAt)).length;
   // Chats with something I haven't read.
   const { unreadCount: msgUnread } = useConversations(account?.uid);
+  useTitleBadge(msgUnread);
 
   // Close menus whenever the page changes. Done during render (not in an
   // effect) by remembering which path the menus were opened on.

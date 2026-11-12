@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { usePageTitle } from "../utils/pageTitle";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { onAuthStateChanged } from "firebase/auth";
 import { doc, getDoc, increment, updateDoc } from "firebase/firestore";
@@ -69,6 +70,7 @@ export default function ListingDetail() {
 
   const [loading, setLoading] = useState(true);
   const [notFound, setNotFound] = useState(false);
+  usePageTitle(notFound ? "Not found" : listing?.title || "Listing");
   const [loadErr, setLoadErr] = useState(false);
 
   const [popup, setPopup] = useState({ show: false, text: "", ok: true });

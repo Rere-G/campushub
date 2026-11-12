@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { usePageTitle } from "../utils/pageTitle";
 import { Link, useNavigate } from "react-router-dom";
 import { onAuthStateChanged } from "firebase/auth";
 import { collection, doc, getDoc, getDocs, query, where } from "firebase/firestore";
@@ -35,6 +36,7 @@ const stateOf = (item) => {
 // My Saved: every listing and service the student bookmarked, newest save
 // first, in one grid. Uses the `saves` list rule (uid == me) from 12a.
 export default function Saved() {
+  usePageTitle("Saved");
   const navigate = useNavigate();
   const [show, setShow] = useState(false);
   const [uid, setUid] = useState(null);

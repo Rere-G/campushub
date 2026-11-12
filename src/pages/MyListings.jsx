@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { usePageTitle } from "../utils/pageTitle";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { onAuthStateChanged } from "firebase/auth";
 import { collection, getCountFromServer, getDocs, query, where } from "firebase/firestore";
@@ -50,6 +51,7 @@ const STATUS_STYLE = {
 // same status controls as the detail pages. Removed posts have no Restore
 // here on purpose (an admin may have removed them).
 export default function MyListings() {
+  usePageTitle("My listings");
   const navigate = useNavigate();
   const [params, setParams] = useSearchParams();
   const [show, setShow] = useState(false);

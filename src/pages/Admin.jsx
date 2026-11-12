@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { usePageTitle } from "../utils/pageTitle";
 import { Link, useNavigate } from "react-router-dom";
 import { onAuthStateChanged } from "firebase/auth";
 import { doc, getDoc, getDocs, collection, updateDoc } from "firebase/firestore";
@@ -152,6 +153,7 @@ const EMPTY_COPY = {
 
 /* ─── Main Admin ───────────────────────────────────────────────── */
 export default function Admin() {
+  usePageTitle("Admin");
   const navigate = useNavigate();
   const [show, setShow] = useState(false);
   const [uid, setUid] = useState(null);

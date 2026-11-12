@@ -2,6 +2,8 @@ import { lazy, Suspense } from "react";
 import { Routes, Route, Navigate, Outlet } from "react-router-dom";
 import Gate from "./components/Gate";
 import PageLoader from "./components/PageLoader";
+import ErrorBoundary from "./components/ErrorBoundary";
+import OfflineBanner from "./components/OfflineBanner";
 
 // Stage 17a: each page is its own file, downloaded the first time it's opened.
 const Landing = lazy(() => import("./pages/Landing"));
@@ -20,10 +22,14 @@ const Saved = lazy(() => import("./pages/Saved"));
 const MyListings = lazy(() => import("./pages/MyListings"));
 const Chat = lazy(() => import("./pages/Chat"));
 const Messages = lazy(() => import("./pages/Messages"));
+const NotFound = lazy(() => import("./pages/NotFound"));
 
 
 export default function App() {
   return (
+    <>
+    <OfflineBanner />
+    <ErrorBoundary fullScreen homeTo="/">
     <Suspense fallback={<PageLoader fullScreen />}>
     <Routes>
       <Route path="/" element={<Landing />} />
@@ -34,7 +40,7 @@ export default function App() {
       {/* Every signed-in page: ONE Gate (account check) + the sidebar shell,
           kept mounted while moving between these pages. Pending users may
           only open /Profile (shown without the shell). */}
-      <Route element={<Gate withShell allowUnapprovedPaths={["/profile"]}><Suspense fallback={<PageLoader />}><Outlet /></Suspense></Gate>}>
+      <Route element={<Gate withShell allowUnapprovedPaths={["/profile"]}><ErrorBoundary><Suspense fallback={<PageLoader />}><Outlet /></Suspense></ErrorBoundary></Gate>}>
         <Route path="/dashboard" element={<Dashboard />} />
         <Route path="/marketplace" element={<Marketplace />} />
         <Route path="/marketplace/new" element={<CreateListing />} />
@@ -51,8 +57,10 @@ export default function App() {
         <Route path="/admin" element={<Admin />} />
       </Route>
 
-      <Route path="*" element={<Navigate to="/" replace />} />
+      <Route path="*" element={<NotFound />} />
     </Routes>
     </Suspense>
+    </ErrorBoundary>
+    </>
   );
 }

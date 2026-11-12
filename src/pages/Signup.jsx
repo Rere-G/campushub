@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { usePageTitle } from "../utils/pageTitle";
 import { Link, useNavigate } from "react-router-dom";
 import {
   createUserWithEmailAndPassword,
@@ -28,6 +29,7 @@ const friendlyAuthError = (err, provider = "This") => {
 };
 
 export default function Signup() {
+  usePageTitle("Sign up");
   const navigate = useNavigate();
   const [show, setShow] = useState(false);
   const [username, setUsername] = useState("");

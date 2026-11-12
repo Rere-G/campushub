@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { usePageTitle } from "../utils/pageTitle";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { onAuthStateChanged } from "firebase/auth";
 import { collection, doc, getDoc, limitToLast, onSnapshot, orderBy, query } from "firebase/firestore";
@@ -77,6 +78,7 @@ export default function Chat() {
   const [conv, setConv] = useState(null);
   const [notFound, setNotFound] = useState(false);
   const [other, setOther] = useState(null);
+  usePageTitle(other?.name?.trim() ? `Chat with ${other.name.trim()}` : "Messages");
   const [item, setItem] = useState(null);
   const [messages, setMessages] = useState([]);
   const [loadingMsgs, setLoadingMsgs] = useState(true);

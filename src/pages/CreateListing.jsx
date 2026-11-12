@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { usePageTitle } from "../utils/pageTitle";
 import { Link, useNavigate } from "react-router-dom";
 import { addDoc, collection, doc, increment, serverTimestamp, updateDoc } from "firebase/firestore";
 import { HiOutlineCheckCircle, HiOutlineTag } from "react-icons/hi2";
@@ -22,6 +23,7 @@ const TITLE_MAX = 80;
 const DESCRIPTION_MAX = 600;
 
 export default function CreateListing() {
+  usePageTitle("Sell an item");
   const navigate = useNavigate();
   const [show, setShow] = useState(false);
 

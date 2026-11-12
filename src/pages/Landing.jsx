@@ -1,4 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { usePageTitle } from "../utils/pageTitle";
 import { Link, useNavigate } from "react-router-dom";
 import { onAuthStateChanged } from "firebase/auth";
 import { auth } from "../services/firebase";
@@ -88,6 +89,7 @@ function useBlip() {
 }
 
 export default function Landing() {
+  usePageTitle("");
   const navigate = useNavigate();
   const rootRef = useRef(null);
   const [checking, setChecking] = useState(true);

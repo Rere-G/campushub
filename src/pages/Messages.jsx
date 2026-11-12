@@ -1,4 +1,5 @@
 import { Suspense, useEffect, useMemo, useState } from "react";
+import { usePageTitle } from "../utils/pageTitle";
 import { Link, Outlet, useNavigate, useParams } from "react-router-dom";
 import { onAuthStateChanged } from "firebase/auth";
 import {
@@ -21,6 +22,7 @@ const TABS = [
 // on the right. Phone: the inbox, or the chat full screen.
 export default function Messages() {
   const { convId } = useParams();
+  usePageTitle(convId ? null : "Messages");
   const navigate = useNavigate();
   const [uid, setUid] = useState(null);
   const [search, setSearch] = useState("");
