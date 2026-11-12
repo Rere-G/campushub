@@ -1538,6 +1538,149 @@ async function main() {
     await assertSucceeds(updateDoc(doc(asOwner(), "listings/d192"), { negotiable: true }));
   });
 
+  // ---- Stage 18c: request changes, admin audit log, announcement ----
+  await testEnv.withSecurityRulesDisabled(async (context) => {
+    const db = context.firestore();
+    await setDoc(doc(db, "users/review-user"), {
+      approved: false, banned: false, role: "student",
+      changesRequested: "Student ID missing", changesRequestedAt: new Date(),
+    });
+    await setDoc(doc(db, "adminLog/existing"), {
+      actorId: "admin-user", action: "user_approved", targetType: "user", targetId: "x", createdAt: new Date(),
+    });
+    await setDoc(doc(db, "announcements/current"), {
+      title: "Welcome", body: "Exam week: meet at the library.", active: true, updatedAt: new Date(), updatedBy: "admin-user",
+    });
+  });
+  const asAdmin18 = () => testEnv.authenticatedContext("admin-user").firestore();
+  const asStudent18 = () => testEnv.authenticatedContext("approved-user").firestore();
+  const asPending18 = () => testEnv.authenticatedContext("pending-user").firestore();
+  const logEntry = (overrides = {}) => ({
+    actorId: "admin-user", action: "user_approved", targetType: "user", targetId: "pending-user",
+    targetLabel: "CoolStudent", reason: "", createdAt: serverTimestamp(), ...overrides,
+  });
+  const announcement = (overrides = {}) => ({
+    title: "Library hours", body: "The library closes at 8pm this week.", active: true,
+    updatedAt: serverTimestamp(), updatedBy: "admin-user", ...overrides,
+  });
+
+  // 197-207. Request changes on a pending student.
+  await run("197. admin requests changes on a pending student -> Allow", async () => {
+    await assertSucceeds(updateDoc(doc(asAdmin18(), "users/pending-user"), {
+      changesRequested: "Please add your student ID.", changesRequestedAt: serverTimestamp(),
+    }));
+  });
+  await run("198. admin note with a browser clock time -> Deny", async () => {
+    await assertFails(updateDoc(doc(asAdmin18(), "users/pending-user"), {
+      changesRequested: "Add your ID", changesRequestedAt: new Date(),
+    }));
+  });
+  await run("199. admin note over 300 characters -> Deny", async () => {
+    await assertFails(updateDoc(doc(asAdmin18(), "users/pending-user"), {
+      changesRequested: "x".repeat(301), changesRequestedAt: serverTimestamp(),
+    }));
+  });
+  await run("200. admin leaves a note on an approved student -> Deny", async () => {
+    await assertFails(updateDoc(doc(asAdmin18(), "users/approved-user"), {
+      changesRequested: "Add your ID", changesRequestedAt: serverTimestamp(),
+    }));
+  });
+  await run("201. admin approves and clears the note -> Allow", async () => {
+    await assertSucceeds(updateDoc(doc(asAdmin18(), "users/review-user"), {
+      approved: true, changesRequested: "", changesRequestedAt: serverTimestamp(),
+    }));
+  });
+  await run("202. admin approves but leaves a note -> Deny", async () => {
+    await assertFails(updateDoc(doc(asAdmin18(), "users/pending-user"), {
+      approved: true, changesRequested: "Still missing ID", changesRequestedAt: serverTimestamp(),
+    }));
+  });
+  await run("203. pending student clears the admin's note -> Deny", async () => {
+    await assertFails(updateDoc(doc(asPending18(), "users/pending-user"), {
+      changesRequested: "", changesRequestedAt: serverTimestamp(),
+    }));
+  });
+  await run("204. pending student fixes their profile (note untouched) -> Allow", async () => {
+    await assertSucceeds(updateDoc(doc(asPending18(), "users/pending-user"), { studentId: "TNT-2024-0193" }));
+  });
+  await run("205. student writes a note on someone else -> Deny", async () => {
+    await assertFails(updateDoc(doc(asStudent18(), "users/pending-user"), {
+      changesRequested: "x", changesRequestedAt: serverTimestamp(),
+    }));
+  });
+  await run("206. new account created with a fake admin note -> Deny", async () => {
+    const db = testEnv.authenticatedContext("new-user-206").firestore();
+    await assertFails(setDoc(doc(db, "users/new-user-206"), {
+      approved: false, role: "student", changesRequested: "Approved by admin",
+    }));
+  });
+  await run("207. new account created normally -> Allow", async () => {
+    const db = testEnv.authenticatedContext("new-user-207").firestore();
+    await assertSucceeds(setDoc(doc(db, "users/new-user-207"), { approved: false, role: "student" }));
+  });
+
+  // 208-217. Admin audit log: admins add entries as themselves; nobody edits or deletes.
+  await run("208. admin adds a log entry -> Allow", async () => {
+    await assertSucceeds(setDoc(doc(asAdmin18(), "adminLog/l208"), logEntry()));
+  });
+  await run("209. admin logs as another admin -> Deny", async () => {
+    await assertFails(setDoc(doc(asAdmin18(), "adminLog/l209"), logEntry({ actorId: "someone-else" })));
+  });
+  await run("210. log entry with a browser clock time -> Deny", async () => {
+    await assertFails(setDoc(doc(asAdmin18(), "adminLog/l210"), logEntry({ createdAt: new Date() })));
+  });
+  await run("211. log entry with an unknown action -> Deny", async () => {
+    await assertFails(setDoc(doc(asAdmin18(), "adminLog/l211"), logEntry({ action: "deleted_everything" })));
+  });
+  await run("212. log entry with an extra field -> Deny", async () => {
+    await assertFails(setDoc(doc(asAdmin18(), "adminLog/l212"), logEntry({ secret: "x" })));
+  });
+  await run("213. student adds a log entry -> Deny", async () => {
+    await assertFails(setDoc(doc(asStudent18(), "adminLog/l213"), logEntry({ actorId: "approved-user" })));
+  });
+  await run("214. admin edits a log entry -> Deny", async () => {
+    await assertFails(updateDoc(doc(asAdmin18(), "adminLog/existing"), { reason: "changed later" }));
+  });
+  await run("215. admin deletes a log entry -> Deny", async () => {
+    await assertFails(deleteDoc(doc(asAdmin18(), "adminLog/existing")));
+  });
+  await run("216. admin reads the log -> Allow", async () => {
+    await assertSucceeds(getDocs(collection(asAdmin18(), "adminLog")));
+  });
+  await run("217. student reads the log -> Deny", async () => {
+    await assertFails(getDocs(collection(asStudent18(), "adminLog")));
+  });
+
+  // 218-226. Campus announcement.
+  await run("218. admin publishes the announcement -> Allow", async () => {
+    await assertSucceeds(setDoc(doc(asAdmin18(), "announcements/current"), announcement()));
+  });
+  await run("219. admin writes a second announcement doc -> Deny", async () => {
+    await assertFails(setDoc(doc(asAdmin18(), "announcements/other"), announcement()));
+  });
+  await run("220. announcement title over 60 characters -> Deny", async () => {
+    await assertFails(setDoc(doc(asAdmin18(), "announcements/current"), announcement({ title: "x".repeat(61) })));
+  });
+  await run("221. student writes the announcement -> Deny", async () => {
+    await assertFails(setDoc(doc(asStudent18(), "announcements/current"), announcement({ updatedBy: "approved-user" })));
+  });
+  await run("222. approved student reads the announcement -> Allow", async () => {
+    await assertSucceeds(getDoc(doc(asStudent18(), "announcements/current")));
+  });
+  await run("223. pending student reads the announcement -> Deny", async () => {
+    await assertFails(getDoc(doc(asPending18(), "announcements/current")));
+  });
+  await run("224. banned student reads the announcement -> Deny", async () => {
+    const db = testEnv.authenticatedContext("banned-user").firestore();
+    await assertFails(getDoc(doc(db, "announcements/current")));
+  });
+  await run("225. admin deletes the announcement -> Deny", async () => {
+    await assertFails(deleteDoc(doc(asAdmin18(), "announcements/current")));
+  });
+  await run("226. admin switches the announcement off -> Allow", async () => {
+    await assertSucceeds(setDoc(doc(asAdmin18(), "announcements/current"), announcement({ active: false })));
+  });
+
   await testEnv.cleanup();
 
   const failed = results.filter((r) => !r.pass);
