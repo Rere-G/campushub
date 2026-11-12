@@ -1478,6 +1478,66 @@ async function main() {
     }));
   });
 
+  // ---- Post details (stage 16): currency, price, condition, meetup spot, negotiable ----
+  await testEnv.withSecurityRulesDisabled(async (context) => {
+    // An older listing saved with a decimal price before stage 16.
+    await setDoc(doc(context.firestore(), "listings/legacy-price"), listingData({ price: 9.99 }));
+  });
+  const fullListing = (overrides = {}) =>
+    listingData({ currency: "USD", price: 1200, condition: "like_new", meetupSpot: "library", negotiable: true, ...overrides });
+  const asOwner = () => testEnv.authenticatedContext("approved-user").firestore();
+
+  // 183-184. Valid new posts.
+  await run("183. $ listing with all detail fields -> Allow", async () => {
+    await assertSucceeds(setDoc(doc(asOwner(), "listings/d183"), fullListing()));
+  });
+  await run("184. service with currency, meetup spot, negotiable -> Allow", async () => {
+    await assertSucceeds(setDoc(doc(asOwner(), "services/d184"),
+      serviceData({ currency: "MMK", price: 20000, meetupSpot: "flexible", negotiable: false })));
+  });
+
+  // 185-191. Invalid values.
+  await run("185. service with a condition -> Deny", async () => {
+    await assertFails(setDoc(doc(asOwner(), "services/d185"), serviceData({ condition: "new" })));
+  });
+  await run("186. unknown currency -> Deny", async () => {
+    await assertFails(setDoc(doc(asOwner(), "listings/d186"), fullListing({ currency: "EUR" })));
+  });
+  await run("187. price with decimals -> Deny", async () => {
+    await assertFails(setDoc(doc(asOwner(), "listings/d187"), fullListing({ price: 5.5 })));
+  });
+  await run("188. negative price -> Deny", async () => {
+    await assertFails(setDoc(doc(asOwner(), "listings/d188"), fullListing({ price: -1 })));
+  });
+  await run("189. unknown condition -> Deny", async () => {
+    await assertFails(setDoc(doc(asOwner(), "listings/d189"), fullListing({ condition: "broken" })));
+  });
+  await run("190. typed address as meetup spot -> Deny", async () => {
+    await assertFails(setDoc(doc(asOwner(), "listings/d190"), fullListing({ meetupSpot: "No. 12, Main Road" })));
+  });
+  await run("191. negotiable as text -> Deny", async () => {
+    await assertFails(setDoc(doc(asOwner(), "listings/d191"), fullListing({ negotiable: "yes" })));
+  });
+
+  // 192. A post without the new fields (today's app) still works.
+  await run("192. listing without detail fields -> Allow", async () => {
+    await assertSucceeds(setDoc(doc(asOwner(), "listings/d192"), listingData()));
+  });
+
+  // 193-196. Owner edits re-check only what changed.
+  await run("193. owner switches currency to an unknown value -> Deny", async () => {
+    await assertFails(updateDoc(doc(asOwner(), "listings/d183"), { currency: "EUR" }));
+  });
+  await run("194. owner changes price to a decimal -> Deny", async () => {
+    await assertFails(updateDoc(doc(asOwner(), "listings/d183"), { price: 1.5 }));
+  });
+  await run("195. owner marks an old decimal-price listing sold -> Allow", async () => {
+    await assertSucceeds(updateDoc(doc(asOwner(), "listings/legacy-price"), { status: "sold" }));
+  });
+  await run("196. owner turns on negotiable -> Allow", async () => {
+    await assertSucceeds(updateDoc(doc(asOwner(), "listings/d192"), { negotiable: true }));
+  });
+
   await testEnv.cleanup();
 
   const failed = results.filter((r) => !r.pass);

@@ -158,6 +158,35 @@ service cloud.firestore {
             || after[request.auth.uid] in ['like', 'love', 'laugh', 'wow', 'sad']);
     }
 
+    // ---- Post details (stage 16): currency, whole-number price, condition,
+    // meetup spot, negotiable. Each is checked only when present, so older
+    // posts (and an app that doesn't send them yet) keep working; the create
+    // form makes Condition required for listings.
+    function priceOk(p) {
+      return p is int && p >= 0 && p <= 100000000;
+    }
+    function detailOk(d, key, isListing) {
+      return !(key in d)
+        || (key == 'currency' && d.currency in ['MMK', 'USD'])
+        || (key == 'meetupSpot' && d.meetupSpot in
+              ['library', 'canteen', 'student_union', 'main_gate', 'sports_centre', 'flexible'])
+        || (key == 'negotiable' && d.negotiable is bool)
+        || (key == 'condition' && isListing && d.condition in ['new', 'like_new', 'good', 'fair']);
+    }
+    function postDetailsOk(d, isListing) {
+      return detailOk(d, 'currency', isListing)
+        && detailOk(d, 'meetupSpot', isListing)
+        && detailOk(d, 'negotiable', isListing)
+        && detailOk(d, 'condition', isListing);
+    }
+    // On an owner's edit, re-check only what changed.
+    function postEditOk(isListing) {
+      let changed = request.resource.data.diff(resource.data).affectedKeys();
+      return (!('price' in changed) || priceOk(request.resource.data.price))
+        && (!changed.hasAny(['currency', 'meetupSpot', 'negotiable', 'condition'])
+            || postDetailsOk(request.resource.data, isListing));
+    }
+
     match /users/{uid} {
       // You read your own doc; an admin may read any user's doc (to review them).
       allow read: if request.auth != null && (request.auth.uid == uid || isAdmin());
@@ -196,7 +225,9 @@ service cloud.firestore {
         && request.resource.data.category in
              ['books', 'electronics', 'clothing', 'dorm', 'gaming']
         && request.resource.data.photos is list
-        && request.resource.data.photos.size() <= 3;
+        && request.resource.data.photos.size() <= 3
+        && priceOk(request.resource.data.price)
+        && postDetailsOk(request.resource.data, true);
 
       allow update: if request.auth != null && (
         // Owner: may edit their own listing's content, and move it between
@@ -207,7 +238,8 @@ service cloud.firestore {
           && request.resource.data.sellerId == resource.data.sellerId
           && request.resource.data.status in ['active', 'sold', 'removed']
           && notLockedByAdmin()
-          && lockFlagUnchanged())
+          && lockFlagUnchanged()
+          && postEditOk(true))
         ||
         // Admin: may change ONLY status, and only to active/removed
         // (moderation — never 'sold', that's the seller's own call).
@@ -260,7 +292,9 @@ service cloud.firestore {
         && request.resource.data.category in
              ['tutoring', 'tech', 'design', 'writing', 'events', 'other']
         && request.resource.data.photos is list
-        && request.resource.data.photos.size() <= 3;
+        && request.resource.data.photos.size() <= 3
+        && priceOk(request.resource.data.price)
+        && postDetailsOk(request.resource.data, false);
 
       allow update: if request.auth != null && (
         // Owner: may edit their own service's content, and move it between
@@ -272,7 +306,8 @@ service cloud.firestore {
           && request.resource.data.providerId == resource.data.providerId
           && request.resource.data.status in ['active', 'paused', 'removed']
           && notLockedByAdmin()
-          && lockFlagUnchanged())
+          && lockFlagUnchanged()
+          && postEditOk(false))
         ||
         // Admin: may change ONLY status, and only to active/removed
         // (moderation — never 'paused', that's the provider's own call).
