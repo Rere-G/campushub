@@ -352,7 +352,7 @@ export default function Dashboard() {
 
           {/* Welcome card (compact, stage 18b) */}
           <div
-            className={`${card} flex flex-col justify-center px-6 py-6 transition-all duration-700 sm:px-8 ${
+            className={`${card} flex flex-col justify-between gap-6 px-6 py-6 transition-all duration-700 sm:px-8 sm:py-7 ${
               show ? "translate-y-0 opacity-100" : "translate-y-10 opacity-0"
             }`}
           >
@@ -372,13 +372,57 @@ export default function Dashboard() {
                 src={mascotGif}
                 alt=""
                 aria-hidden="true"
-                className="animate-mascot-bob hidden w-[96px] shrink-0 opacity-90 drop-shadow-[0_16px_30px_rgba(0,0,0,0.5)] sm:block lg:w-[140px]"
+                className="animate-mascot-bob hidden w-[96px] shrink-0 opacity-90 drop-shadow-[0_16px_30px_rgba(0,0,0,0.5)] sm:block lg:w-[150px]"
                 style={{ imageRendering: "pixelated" }}
               />
             </div>
 
+            {/* At a glance: fills the card when it stretches to the profile card's height */}
+            <div className="relative z-10 flex flex-wrap gap-2">
+              {[
+                {
+                  to: "/messages",
+                  icon: HiOutlineChatBubbleLeftRight,
+                  text: inbox.unreadCount ? `${inbox.unreadCount} unread chat${inbox.unreadCount === 1 ? "" : "s"}` : "No unread chats",
+                  hot: inbox.unreadCount > 0,
+                },
+                {
+                  to: "#activity",
+                  icon: HiOutlineQuestionMarkCircle,
+                  text: unreadCount ? `${unreadCount} new in Activity` : "Activity all read",
+                  hot: unreadCount > 0,
+                },
+                ...(isAdmin
+                  ? []
+                  : [
+                      {
+                        to: "/Profile",
+                        icon: HiOutlineCheckCircle,
+                        text: completionPct >= 100 ? "Profile complete" : `Profile ${completionPct}% complete`,
+                        hot: completionPct < 100,
+                      },
+                    ]),
+              ].map(({ to, icon: Icon, text, hot }) => {
+                const cls = `inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-medium transition-colors ${
+                  hot
+                    ? "border-[#c9963f]/35 bg-[#c9963f]/10 text-[#e8c88f] hover:bg-[#c9963f]/15"
+                    : "border-white/[0.08] bg-white/[0.03] text-white/50 hover:border-white/15 hover:text-white/70"
+                }`;
+                const inner = (
+                  <>
+                    <Icon className="h-3.5 w-3.5" /> {text}
+                  </>
+                );
+                return to.startsWith("#") ? (
+                  <a key={text} href={to} className={cls}>{inner}</a>
+                ) : (
+                  <Link key={text} to={to} className={cls}>{inner}</Link>
+                );
+              })}
+            </div>
+
             {/* Action row */}
-            <div className="relative z-10 mt-6 grid grid-cols-2 gap-2.5 sm:flex sm:flex-wrap">
+            <div className="relative z-10 grid grid-cols-2 gap-2.5 sm:flex sm:flex-wrap">
               {actions.map(({ label, short, to, icon: Icon, primary, badge }) => (
                 <Link
                   key={label}
