@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
-import { collection, doc, getDocs, updateDoc } from "firebase/firestore";
+import { collection, doc, getDocs, writeBatch } from "firebase/firestore";
 import {
   HiOutlineExclamationTriangle,
   HiOutlineArrowTopRightOnSquare,
@@ -10,7 +10,8 @@ import {
   HiOutlineTag,
   HiOutlineLockClosed,
 } from "react-icons/hi2";
-import { db } from "../services/firebase";
+import { auth, db } from "../services/firebase";
+import { logEntry, newLogRef } from "../utils/adminLog";
 import { formatPostPrice } from "../utils/postDetails";
 import { REMOVAL_REASONS, notifyPostRemoved } from "../utils/notifications";
 import { categoryLabel } from "../constants/categories";
@@ -134,10 +135,24 @@ export default function PostsPanel({ users, toast }) {
       // removedByAdmin locks the post so its owner can't restore it
       // (firestore.rules, stage 14). Restore clears the lock again.
       const removedByAdmin = next === "removed";
-      await updateDoc(doc(db, post.kind === "listing" ? "listings" : "services", post.id), {
+      // The change and its audit-log entry are saved together (stage 18c-3).
+      const batch = writeBatch(db);
+      batch.update(doc(db, post.kind === "listing" ? "listings" : "services", post.id), {
         status: next,
         removedByAdmin,
       });
+      batch.set(
+        newLogRef(),
+        logEntry({
+          actorId: auth.currentUser?.uid,
+          action: next === "removed" ? (post.status === "removed" ? "post_locked" : "post_removed") : "post_restored",
+          targetType: post.kind,
+          targetId: post.id,
+          targetLabel: post.title,
+          reason: why,
+        })
+      );
+      await batch.commit();
       setPosts((list) =>
         list.map((p) => (p.kind === post.kind && p.id === post.id ? { ...p, status: next, removedByAdmin } : p))
       );

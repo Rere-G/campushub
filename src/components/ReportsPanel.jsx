@@ -11,6 +11,7 @@ import {
   HiOutlineChatBubbleLeftRight,
 } from "react-icons/hi2";
 import { db } from "../services/firebase";
+import { addLog } from "../utils/adminLog";
 import { REPORT_REASONS } from "../utils/reports";
 import { notifyPostRemoved, notifyReportHandled } from "../utils/notifications";
 import ChatReviewDialog from "./ChatReviewDialog";
@@ -211,6 +212,13 @@ export default function ReportsPanel({ adminUid, users, onUserBanned, onOpenCoun
     try {
       await removeContent(report);
       const n = await resolve(report, "actioned", "removed");
+      await addLog({
+        action: report.targetType === "message" ? "message_removed" : "report_actioned",
+        targetType: report.targetType,
+        targetId: report.targetType === "message" ? report.convId : report.itemId,
+        targetLabel: targets[itemPath(report)]?.data?.title || "",
+        reason: `Removed after report: ${report.reason}`,
+      });
       toast(n > 1 ? `Content removed. ${n} reports closed.` : "Content removed and report closed.");
     } catch (err) {
       console.error("Remove failed:", err);
@@ -225,6 +233,13 @@ export default function ReportsPanel({ adminUid, users, onUserBanned, onOpenCoun
     setBusyId(report.id);
     try {
       await resolve(report, "dismissed", "dismissed");
+      await addLog({
+        action: "report_dismissed",
+        targetType: "report",
+        targetId: report.id,
+        targetLabel: targets[itemPath(report)]?.data?.title || "",
+        reason: `Reported for: ${report.reason}`,
+      });
       toast("Report dismissed.");
     } catch (err) {
       console.error("Dismiss failed:", err);
@@ -247,6 +262,13 @@ export default function ReportsPanel({ adminUid, users, onUserBanned, onOpenCoun
       const canRemove = t?.exists && !isRemoved(report, t);
       if (alsoRemove && canRemove) await removeContent(report);
       await resolve(report, "actioned", "banned");
+      await addLog({
+        action: "user_banned",
+        targetType: "user",
+        targetId: report.targetOwnerId,
+        targetLabel: nameOf(usersById[report.targetOwnerId]),
+        reason: `After a report: ${report.reason}`,
+      });
       toast(`Banned ${nameOf(usersById[report.targetOwnerId])}.`);
     } catch (err) {
       console.error("Ban failed:", err);

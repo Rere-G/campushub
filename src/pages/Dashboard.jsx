@@ -30,6 +30,7 @@ import { useInbox } from "../utils/inbox";
 import { shortTime } from "../utils/conversations";
 import { formatPostPrice } from "../utils/postDetails";
 import { serviceCategoryEmoji } from "../constants/serviceCategories";
+import AnnouncementBanner from "../components/AnnouncementBanner";
 import { removalReasonText } from "../utils/notifications";
 
 /* ─── Animated counter hook ────────────────────────────────────── */
@@ -263,6 +264,11 @@ export default function Dashboard() {
       <div className="absolute inset-0 bg-gradient-to-b from-[#1a120a]/45 via-[#0d0b07]/70 to-black/95" />
 
       <div className="relative z-10 mx-auto max-w-7xl px-4 py-6 sm:px-6 lg:px-8">
+
+        {/* ── Campus announcement (stage 18c-3) ── */}
+        <div className="mb-4 empty:hidden">
+          <AnnouncementBanner />
+        </div>
 
         {/* ── Profile incomplete banner ── */}
         {!loadingProfile && !profileCompleted && !isAdmin && (

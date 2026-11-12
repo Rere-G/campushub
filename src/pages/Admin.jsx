@@ -4,6 +4,8 @@ import { Link, useNavigate } from "react-router-dom";
 import { onAuthStateChanged } from "firebase/auth";
 import { doc, getDoc, getDocs, collection, serverTimestamp, writeBatch } from "firebase/firestore";
 import {
+  HiOutlineClipboardDocumentList,
+  HiOutlineMegaphone,
   HiOutlineChartBar,
   HiOutlineUsers,
   HiOutlineTag,
@@ -19,6 +21,8 @@ import ReportsPanel from "../components/ReportsPanel";
 import PostsPanel from "../components/PostsPanel";
 import PageLoader from "../components/PageLoader";
 import AdminUserView from "../components/AdminUserView";
+import AdminLogPanel from "../components/AdminLogPanel";
+import AnnouncementPanel from "../components/AnnouncementPanel";
 import { logEntry, newLogRef } from "../utils/adminLog";
 
 // Stage 18c-1: charts load only when the Overview tab is shown.
@@ -213,6 +217,8 @@ export default function Admin() {
     { key: "users", label: "Users", icon: HiOutlineUsers, badge: counts.pending },
     { key: "posts", label: "Posts", icon: HiOutlineTag },
     { key: "reports", label: "Reports", icon: HiOutlineFlag, badge: openReports, alert: true },
+    { key: "log", label: "Activity log", icon: HiOutlineClipboardDocumentList },
+    { key: "announce", label: "Announce", icon: HiOutlineMegaphone },
   ];
 
   const card =
@@ -282,8 +288,9 @@ export default function Admin() {
                     : "text-white/55 hover:bg-white/[0.06] hover:text-white"
                 }`}
               >
-                <Icon className="hidden h-4 w-4 min-[400px]:block sm:block" />
-                {label}
+                <Icon className="h-4 w-4 shrink-0" />
+                {/* Phones: only the open tab shows its name; the rest are icons. */}
+                <span className={active ? "" : "sr-only sm:not-sr-only"}>{label}</span>
                 {badge > 0 && (
                   <span
                     className={`flex h-5 min-w-5 items-center justify-center rounded-full px-1 text-[10px] font-bold ${
@@ -320,7 +327,11 @@ export default function Admin() {
           }`}
         >
           <div className="pointer-events-none absolute inset-x-0 top-0 h-px" style={{ background: "linear-gradient(90deg,transparent,rgba(201,150,63,0.45),transparent)" }} />
-          {section === "posts" && uid ? (
+          {section === "log" && uid ? (
+            <AdminLogPanel users={users} />
+          ) : section === "announce" && uid ? (
+            <AnnouncementPanel adminUid={uid} users={users} toast={toast} />
+          ) : section === "posts" && uid ? (
             <PostsPanel users={users} toast={toast} />
           ) : section === "reports" && uid ? (
             <ReportsPanel
