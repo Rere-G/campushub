@@ -6,7 +6,6 @@ import { collection, doc, getDoc, getDocs, query, where } from "firebase/firesto
 import {
   HiOutlineShoppingBag,
   HiOutlineWrenchScrewdriver,
-  HiOutlineUserCircle,
   HiOutlinePlusCircle,
   HiOutlineArrowRight,
   HiOutlineBookmark,
@@ -18,11 +17,19 @@ import {
   HiOutlineChatBubbleLeftRight,
   HiOutlineExclamationTriangle,
   HiOutlineFlag,
+  HiOutlineInboxStack,
+  HiOutlineCheckCircle,
+  HiOutlineQuestionMarkCircle,
+  HiOutlineMagnifyingGlass,
 } from "react-icons/hi2";
 import { auth, db } from "../services/firebase";
 import mascotGif from "../assets/TS.webp";
 import dashboardBg from "../assets/dashboard-bg.jpg";
-import { markActivityRead, timeAgo, useActivity } from "../utils/activity";
+import { ACTIVITY_LIMIT, markActivityRead, timeAgo, useActivity } from "../utils/activity";
+import { useInbox } from "../utils/inbox";
+import { shortTime } from "../utils/conversations";
+import { formatPostPrice } from "../utils/postDetails";
+import { serviceCategoryEmoji } from "../constants/serviceCategories";
 import { removalReasonText } from "../utils/notifications";
 
 /* ─── Animated counter hook ────────────────────────────────────── */
@@ -92,6 +99,8 @@ export default function Dashboard() {
   const [marking, setMarking] = useState(false);
   // Real counts from the actual documents (not the stored counters, which drift).
   const [counts, setCounts] = useState(null); // { listings, services, saved } | null while loading
+  // My listings + services (newest first) for the My posts card and selling stats.
+  const [myPosts, setMyPosts] = useState(null); // [] | null while loading | "error"
 
   useEffect(() => {
     const timer = setTimeout(() => setShow(true), 120);
@@ -127,11 +136,19 @@ export default function Dashboard() {
         if (!alive) return;
         const notRemoved = (snap) => snap.docs.filter((d) => d.data().status !== "removed").length;
         setCounts({ listings: notRemoved(l), services: notRemoved(sv), saved: sa.size });
+        const posts = [
+          ...l.docs.map((d) => ({ id: d.id, kind: "listing", ...d.data() })),
+          ...sv.docs.map((d) => ({ id: d.id, kind: "service", ...d.data() })),
+        ].sort((a, b) => (b.createdAt?.toMillis?.() || 0) - (a.createdAt?.toMillis?.() || 0));
+        setMyPosts(posts);
       })
       .catch((err) => {
         console.error("Couldn't count your posts:", err);
         // Fall back to the stored counters so the card still shows something.
-        if (alive) setCounts({ fallback: true });
+        if (alive) {
+          setCounts({ fallback: true });
+          setMyPosts("error");
+        }
       });
     return () => { alive = false; };
   }, [user]);
@@ -155,45 +172,51 @@ export default function Dashboard() {
   ).length;
   const completionPct = Math.round((filledCount / completionFields.length) * 100);
 
-  const quickActions = [
-    {
-      title: "Marketplace",
-      desc: "Browse the newest campus listings.",
-      to: "/marketplace",
-      icon: HiOutlineShoppingBag,
-      accent: "#c9963f",
-      accentBg: "rgba(201,150,63,0.10)",
-    },
-    {
-      title: "Offer Services",
-      desc: "Publish tutoring or campus services.",
-      to: "/services",
-      icon: HiOutlineWrenchScrewdriver,
-      accent: "#8f774b",
-      accentBg: "rgba(143,119,75,0.10)",
-    },
-    {
-      title: "My Profile",
-      desc: "Manage your personal account details.",
-      to: "/Profile",
-      icon: HiOutlineUserCircle,
-      accent: "#d6bd97",
-      accentBg: "rgba(214,189,151,0.10)",
-    },
-    {
-      title: "Create Listing",
-      desc: "Post your next item or service.",
-      to: "/marketplace",
-      icon: HiOutlinePlusCircle,
-      accent: "#c9963f",
-      accentBg: "rgba(201,150,63,0.10)",
-    },
+  // Live inbox shared by the app shell (no extra Firestore listener).
+  const inbox = useInbox();
+
+  // Slim action row under the greeting (replaces the Quick Actions cards).
+  const actions = [
+    { label: "Sell an item", short: "Sell", to: "/marketplace/new", icon: HiOutlinePlusCircle, primary: true },
+    { label: "Offer a service", short: "Offer service", to: "/services/new", icon: HiOutlineWrenchScrewdriver },
+    { label: "Browse", short: "Browse", to: "/marketplace", icon: HiOutlineMagnifyingGlass },
+    { label: "Messages", short: "Chats", to: "/messages", icon: HiOutlineChatBubbleLeftRight, badge: inbox.unreadCount },
   ];
 
   // Questions other students asked on my listings and services (live).
   const { items: activity, loading: activityLoading, error: activityError } = useActivity(user?.uid);
   const isUnread = (a) => !seenAt || (a.createdAt && a.createdAt > seenAt);
   const unreadCount = activity.filter(isUnread).length;
+
+  // Selling stats, all from data already loaded on this page.
+  const postsReady = Array.isArray(myPosts);
+  const questions = activity.filter((a) => a.kind === "question").length;
+  const sellingStats = [
+    {
+      label: "Active posts",
+      value: postsReady ? myPosts.filter((p) => p.status === "active").length : null,
+      icon: HiOutlineInboxStack,
+      to: "/my-listings",
+    },
+    {
+      label: "Sold",
+      value: postsReady ? myPosts.filter((p) => p.kind === "listing" && p.status === "sold").length : null,
+      icon: HiOutlineCheckCircle,
+      to: "/my-listings?type=listing",
+    },
+    {
+      label: "Buyer chats",
+      value: inbox.loading ? null : inbox.convs.filter((c) => c.role === "selling").length,
+      icon: HiOutlineChatBubbleLeftRight,
+      to: "/messages",
+    },
+    {
+      label: "Questions received",
+      value: activityLoading ? null : questions >= ACTIVITY_LIMIT ? `${ACTIVITY_LIMIT}+` : questions,
+      icon: HiOutlineQuestionMarkCircle,
+      to: "#activity",
+    },
+  ];
 
   const handleMarkRead = async () => {
     if (!user || marking) return;
@@ -321,54 +344,59 @@ export default function Dashboard() {
         {/* ── Hero row ── */}
         <section className="grid grid-cols-1 gap-6 xl:grid-cols-[2fr_0.9fr]">
 
-          {/* Welcome card */}
+          {/* Welcome card (compact, stage 18b) */}
           <div
-            className={`${card} p-8 transition-all duration-700 ${
+            className={`${card} flex flex-col justify-center px-6 py-6 transition-all duration-700 sm:px-8 ${
               show ? "translate-y-0 opacity-100" : "translate-y-10 opacity-0"
             }`}
           >
             <TopLine via="rgba(143,119,75,0.45)" t="rgba(201,150,63,0.35)" />
-            <div className="relative z-10 flex h-full flex-col justify-between gap-8 lg:flex-row lg:items-center">
-              <div className="max-w-xl">
-                <p className="text-[11px] uppercase tracking-[0.42em] text-white/35">
-                  {getGreeting()}
-                </p>
-                <h2 className="mt-3 text-4xl font-bold leading-tight text-white sm:text-5xl" style={{ fontFamily: "'Inter', sans-serif" }}>
-                  {loadingProfile ? (
-                    <span className="inline-block h-11 w-52 animate-pulse rounded-xl bg-white/10" />
-                  ) : (
-                    username
-                  )}
+            <div className="pointer-events-none absolute -right-16 -top-20 h-56 w-56 rounded-full bg-[#c9963f]/[0.10] blur-3xl" />
+            <div className="relative z-10 flex items-center gap-5">
+              <div className="min-w-0 flex-1">
+                <p className="text-[11px] uppercase tracking-[0.42em] text-white/35">{getGreeting()}</p>
+                <h2 className="mt-2 truncate text-3xl font-bold leading-tight text-white sm:text-4xl" style={{ fontFamily: "'Inter', sans-serif" }}>
+                  {loadingProfile ? <span className="inline-block h-9 w-44 animate-pulse rounded-xl bg-white/10" /> : username}
                 </h2>
-                <p className="mt-4 max-w-md text-[15px] leading-7 text-white/50">
-                  Your campus space is ready. Browse listings, offer services, and build your student marketplace presence.
+                <p className="mt-2 max-w-md text-sm leading-6 text-white/45">
+                  Here's what's happening with your posts and chats.
                 </p>
-
-                <div className="mt-7 flex flex-wrap gap-3">
-                  <Link
-                    to="/marketplace"
-                    className="group inline-flex h-11 items-center gap-2.5 rounded-2xl bg-gradient-to-r from-[#8f774b] to-[#c9963f] px-6 text-sm font-bold uppercase tracking-[0.14em] text-[#f4e6cd] transition-all duration-300 hover:-translate-y-1 hover:from-[#9c8352] hover:to-[#d6a24a] hover:shadow-[0_12px_28px_rgba(143,119,75,0.45)] active:scale-[0.97]"
-                  >
-                    <HiOutlineSparkles className="h-4 w-4 transition-transform duration-300 group-hover:rotate-12" />
-                    Explore
-                  </Link>
-                  <Link
-                    to="/Profile"
-                    className="inline-flex h-11 items-center gap-2.5 rounded-2xl border border-white/[0.08] bg-white/[0.05] px-6 text-sm font-semibold uppercase tracking-[0.14em] text-white transition-all duration-300 hover:-translate-y-1 hover:bg-white/[0.09]"
-                  >
-                    <HiOutlineUserCircle className="h-4 w-4" />
-                    Profile
-                  </Link>
-                </div>
               </div>
+              <img
+                src={mascotGif}
+                alt=""
+                aria-hidden="true"
+                className="animate-mascot-bob hidden w-[96px] shrink-0 opacity-90 drop-shadow-[0_16px_30px_rgba(0,0,0,0.5)] sm:block lg:w-[140px]"
+                style={{ imageRendering: "pixelated" }}
+              />
+            </div>
 
-              <div className="relative mx-auto w-fit shrink-0">
-                <img
-                  src={mascotGif}
-                  alt="CampusHub mascot"
-                  className="animate-mascot-bob relative z-10 w-[150px] opacity-90 drop-shadow-[0_20px_40px_rgba(0,0,0,0.5)] transition-all duration-500 hover:scale-[1.06] sm:w-[200px]"
-                />
-              </div>
+            {/* Action row */}
+            <div className="relative z-10 mt-6 grid grid-cols-2 gap-2.5 sm:flex sm:flex-wrap">
+              {actions.map(({ label, short, to, icon: Icon, primary, badge }) => (
+                <Link
+                  key={label}
+                  to={to}
+                  aria-label={badge > 0 ? `${label}, ${badge} unread` : label}
+                  className={`relative inline-flex h-11 items-center justify-center gap-2 rounded-2xl px-4 text-sm font-semibold transition-all duration-200 hover:-translate-y-0.5 motion-reduce:hover:translate-y-0 sm:px-5 ${
+                    primary
+                      ? "bg-gradient-to-r from-[#8f774b] to-[#c9963f] text-[#f4e6cd] hover:shadow-[0_12px_28px_rgba(143,119,75,0.45)]"
+                      : "border border-white/[0.09] bg-white/[0.05] text-white/80 hover:border-[#c9963f]/40 hover:bg-[#c9963f]/10 hover:text-[#f4e6cd]"
+                  }`}
+                >
+                  <Icon className="h-4 w-4 shrink-0" />
+                  <span className="truncate sm:hidden">{short}</span>
+                  <span className="hidden truncate sm:inline">{label}</span>
+                  {badge > 0 && (
+                    <span
+                      className="ml-0.5 flex h-5 min-w-5 items-center justify-center rounded-full bg-[#c9963f] px-1 text-[10px] font-bold text-[#1a120a]"
+                      aria-label={`${badge} unread`}
+                    >
+                      {badge > 9 ? "9+" : badge}
+                    </span>
+                  )}
+                </Link>
+              ))}
             </div>
           </div>
 
@@ -475,71 +503,149 @@ export default function Dashboard() {
           </aside>
         </section>
 
-        {/* ── Content row ── */}
-        <section className="mt-6 grid grid-cols-1 gap-6 xl:grid-cols-[2fr_0.9fr]">
+        {/* ── Selling stats (stage 18b) ── */}
+        <section
+          aria-label="Selling stats"
+          className={`mt-6 grid grid-cols-2 gap-3 transition-all duration-700 delay-100 lg:grid-cols-4 ${
+            show ? "translate-y-0 opacity-100" : "translate-y-10 opacity-0"
+          }`}
+        >
+          {sellingStats.map(({ label, value, icon: Icon, to }) => {
+            const inner = (
+              <>
+                <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-[#c9963f]/25 bg-[#c9963f]/10">
+                  <Icon className="h-5 w-5 text-[#d6bd97]" />
+                </span>
+                <span className="min-w-0">
+                  <span className="block font-mono text-2xl font-bold leading-none tabular-nums text-white">
+                    {value === null ? <span className="text-white/25">–</span> : value}
+                  </span>
+                  <span className="mt-1 block text-[10px] uppercase leading-tight tracking-[0.12em] text-white/40 sm:text-[11px] sm:tracking-[0.14em]">{label}</span>
+                </span>
+              </>
+            );
+            const cls =
+              "flex items-center gap-3 rounded-2xl border border-white/[0.08] bg-white/[0.04] px-3 py-3.5 sm:px-4 sm:py-4 backdrop-blur-xl transition-all duration-300 hover:-translate-y-0.5 hover:border-[#c9963f]/35 hover:bg-white/[0.06] motion-reduce:hover:translate-y-0";
+            return to.startsWith("#") ? (
+              <a key={label} href={to} className={cls}>{inner}</a>
+            ) : (
+              <Link key={label} to={to} className={cls}>{inner}</Link>
+            );
+          })}
+        </section>
 
-          {/* Quick actions */}
+        {/* ── My posts + Messages (stage 18b) ── */}
+        <section className="mt-6 grid grid-cols-1 gap-6 lg:grid-cols-2">
           <div
-            className={`${card} p-7 transition-all duration-700 delay-150 ${
+            className={`${card} p-6 transition-all duration-700 delay-150 sm:p-7 ${
               show ? "translate-y-0 opacity-100" : "translate-y-10 opacity-0"
             }`}
           >
-            <TopLine via="rgba(143,119,75,0.45)" />
-
-            <div className="relative z-10">
-              <div className="mb-6">
-                <p className="text-[11px] uppercase tracking-[0.38em] text-white/35">
-                  What's next
-                </p>
-                <h3 className="mt-2 text-2xl font-bold text-white" style={{ fontFamily: "'Inter', sans-serif" }}>Quick Actions</h3>
-              </div>
-
-              <div className="grid grid-cols-1 gap-3.5 lg:grid-cols-2">
-                {quickActions.map((action, i) => {
-                  const Icon = action.icon;
-                  return (
+            <TopLine via="rgba(201,150,63,0.45)" />
+            <CardHead eyebrow="Selling" title="My posts" linkTo="/my-listings" linkLabel="Manage" />
+            {myPosts === null ? (
+              <RowSkeleton />
+            ) : myPosts === "error" ? (
+              <CardMessage icon={HiOutlineExclamationTriangle} text="Couldn't load your posts." sub="Refresh the page to try again." />
+            ) : myPosts.length === 0 ? (
+              <CardMessage
+                icon={HiOutlineShoppingBag}
+                text="No posts yet"
+                sub="Sell something you no longer need, or offer a skill."
+                action={{ to: "/marketplace/new", label: "Sell your first item" }}
+              />
+            ) : (
+              <ul className="relative z-10 space-y-2">
+                {myPosts.slice(0, 3).map((p) => (
+                  <li key={`${p.kind}-${p.id}`}>
                     <Link
-                      key={action.title}
-                      to={action.to}
-                      className="group relative overflow-hidden rounded-[20px] border border-white/[0.07] bg-white/[0.03] px-5 py-5 transition-all duration-300 hover:-translate-y-1 hover:shadow-[0_14px_30px_rgba(0,0,0,0.35)]"
-                      style={{ transitionDelay: `${i * 35}ms` }}
+                      to={`/${p.kind === "listing" ? "marketplace" : "services"}/${p.id}`}
+                      className="flex items-center gap-3 rounded-2xl border border-white/[0.06] bg-white/[0.03] p-2.5 pr-3 transition-all hover:border-white/[0.12] hover:bg-white/[0.06]"
                     >
-                      {/* hover accent fill */}
-                      <div
-                        className="absolute inset-0 rounded-[20px] opacity-0 transition-opacity duration-300 group-hover:opacity-100"
-                        style={{ background: action.accentBg }}
-                      />
-                      {/* left accent bar */}
-                      <div
-                        className="absolute left-0 top-3 bottom-3 w-[3px] rounded-r-full opacity-0 transition-all duration-300 group-hover:opacity-100"
-                        style={{ background: action.accent }}
-                      />
-
-                      <div className="relative z-10 flex items-center gap-4">
-                        <div
-                          className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl border border-white/[0.08] bg-white/[0.05] transition-transform duration-300 group-hover:scale-110"
-                        >
-                          <Icon className="h-5 w-5" style={{ color: action.accent, opacity: 0.9 }} />
-                        </div>
-
-                        <div className="flex-1 min-w-0">
-                          <h4 className="text-[15px] font-semibold text-white">{action.title}</h4>
-                          <p className="mt-0.5 text-sm text-white/45">{action.desc}</p>
-                        </div>
-
-                        <div
-                          className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-white/[0.07] bg-white/[0.04] text-white/40 transition-all duration-300 group-hover:translate-x-1 group-hover:text-white/70"
-                        >
-                          <HiOutlineArrowRight className="h-4 w-4" />
-                        </div>
-                      </div>
+                      <span className="flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-xl bg-[#090704] text-xl">
+                        {p.photos?.[0] ? (
+                          <img src={p.photos[0]} alt="" loading="lazy" className="h-full w-full object-cover" />
+                        ) : p.kind === "service" ? (
+                          <span aria-hidden="true">{serviceCategoryEmoji(p.category)}</span>
+                        ) : (
+                          <HiOutlineShoppingBag className="h-5 w-5 text-white/20" />
+                        )}
+                      </span>
+                      <span className="min-w-0 flex-1">
+                        <span className="block truncate text-sm font-semibold text-white">{p.title}</span>
+                        <span className="mt-0.5 block text-xs text-[#d6bd97]">
+                          {formatPostPrice(p)}
+                          <span className="text-white/35"> · {p.kind === "listing" ? "Listing" : "Service"}</span>
+                        </span>
+                      </span>
+                      <StatusChip post={p} />
                     </Link>
-                  );
-                })}
-              </div>
-            </div>
+                  </li>
+                ))}
+              </ul>
+            )}
           </div>
 
+          <div
+            className={`${card} p-6 transition-all duration-700 delay-200 sm:p-7 ${
+              show ? "translate-y-0 opacity-100" : "translate-y-10 opacity-0"
+            }`}
+          >
+            <TopLine via="rgba(214,189,151,0.45)" />
+            <CardHead
+              eyebrow={inbox.unreadCount > 0 ? `${inbox.unreadCount} unread` : "Chats"}
+              title="Messages"
+              linkTo="/messages"
+              linkLabel="Open"
+            />
+            {inbox.loading ? (
+              <RowSkeleton round />
+            ) : inbox.error ? (
+              <CardMessage icon={HiOutlineExclamationTriangle} text="Couldn't load your messages." sub="Refresh the page to try again." />
+            ) : inbox.convs.length === 0 ? (
+              <CardMessage
+                icon={HiOutlineChatBubbleLeftRight}
+                text="No messages yet"
+                sub="Tap Message on any listing or service to start a chat."
+                action={{ to: "/marketplace", label: "Browse Marketplace" }}
+              />
+            ) : (
+              <ul className="relative z-10 space-y-2">
+                {inbox.convs.slice(0, 3).map((c) => (
+                  <li key={c.id}>
+                    <Link
+                      to={`/messages/${c.id}`}
+                      className={`flex items-center gap-3 rounded-2xl border p-2.5 pr-3 transition-all hover:bg-white/[0.06] ${
+                        c.unread ? "border-[#c9963f]/25 bg-[#c9963f]/[0.06]" : "border-white/[0.06] bg-white/[0.03]"
+                      }`}
+                    >
+                      <span
+                        className="flex h-11 w-11 shrink-0 items-center justify-center overflow-hidden rounded-full text-sm font-bold text-[#f4e6cd]"
+                        style={{ background: "linear-gradient(135deg,#8f774b,#c9963f)" }}
+                      >
+                        {c.otherPhoto ? <img src={c.otherPhoto} alt="" className="h-full w-full object-cover" /> : c.otherName.charAt(0).toUpperCase()}
+                      </span>
+                      <span className="min-w-0 flex-1">
+                        <span className="flex items-baseline justify-between gap-2">
+                          <span className={`truncate text-sm ${c.unread ? "font-bold text-white" : "font-semibold text-white/85"}`}>{c.otherName}</span>
+                          <span className="shrink-0 text-[11px] text-white/35">{shortTime(c.updated)}</span>
+                        </span>
+                        <span className="block truncate text-[11px] text-[#d6bd97]/75">{c.itemTitle}</span>
+                        <span className={`block truncate text-[13px] ${c.unread ? "text-white/80" : "text-white/40"}`}>
+                          {c.lastMessage ? `${c.lastSenderId === user?.uid ? "You: " : ""}${c.lastMessage}` : "No messages yet"}
+                        </span>
+                      </span>
+                      {c.unread && <span className="h-2 w-2 shrink-0 rounded-full bg-[#c9963f]" aria-label="Unread" />}
+                    </Link>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        </section>
+
+        {/* ── Activity ── */}
+        <section className="mt-6">
           {/* Activity feed */}
           <div
             id="activity"
@@ -775,4 +881,75 @@ function ActivityText({ item }) {
   }
 
   return null;
+}
+
+/* ─── Stage 18b card pieces ─────────────────────────────────────── */
+function CardHead({ eyebrow, title, linkTo, linkLabel }) {
+  return (
+    <div className="relative z-10 mb-4 flex items-end justify-between gap-3">
+      <div>
+        <p className="text-[11px] uppercase tracking-[0.38em] text-white/35">{eyebrow}</p>
+        <h3 className="mt-2 text-2xl font-bold text-white" style={{ fontFamily: "'Inter', sans-serif" }}>{title}</h3>
+      </div>
+      <Link
+        to={linkTo}
+        className="inline-flex shrink-0 items-center gap-1 rounded-lg px-2.5 py-1.5 text-xs font-semibold text-[#d6bd97] transition-colors hover:bg-[#c9963f]/12"
+      >
+        {linkLabel} <HiOutlineArrowRight className="h-3.5 w-3.5" />
+      </Link>
+    </div>
+  );
+}
+
+function RowSkeleton({ round = false }) {
+  return (
+    <div className="relative z-10 space-y-2">
+      {[0, 1, 2].map((i) => (
+        <div key={i} className="flex items-center gap-3 rounded-2xl border border-white/[0.06] bg-white/[0.03] p-2.5">
+          <div className={`h-11 w-11 shrink-0 animate-pulse bg-white/[0.08] ${round ? "rounded-full" : "rounded-xl"}`} />
+          <div className="flex-1 space-y-2">
+            <div className="h-3 w-2/3 animate-pulse rounded bg-white/[0.08]" />
+            <div className="h-3 w-1/3 animate-pulse rounded bg-white/[0.05]" />
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function CardMessage({ icon: Icon, text, sub, action }) {
+  return (
+    <div className="relative z-10 flex flex-col items-center rounded-[18px] border border-dashed border-white/[0.08] px-4 py-8 text-center">
+      <span className="flex h-11 w-11 items-center justify-center rounded-2xl border border-white/[0.08] bg-white/[0.05]">
+        <Icon className="h-5 w-5 text-white/40" />
+      </span>
+      <p className="mt-3 text-sm font-semibold text-white/70">{text}</p>
+      <p className="mt-1 max-w-[260px] text-sm leading-6 text-white/35">{sub}</p>
+      {action && (
+        <Link
+          to={action.to}
+          className="mt-4 inline-flex h-9 items-center rounded-xl border border-white/10 bg-white/[0.05] px-4 text-sm font-semibold text-white/75 transition hover:border-[#c9963f]/40 hover:text-[#f4e6cd]"
+        >
+          {action.label}
+        </Link>
+      )}
+    </div>
+  );
+}
+
+const STATUS_LOOK = {
+  active: { label: "Active", cls: "border-emerald-400/30 bg-emerald-400/10 text-emerald-300" },
+  sold: { label: "Sold", cls: "border-[#c9963f]/35 bg-[#c9963f]/12 text-[#e8c88f]" },
+  paused: { label: "Paused", cls: "border-white/15 bg-white/[0.06] text-white/55" },
+  removed: { label: "Removed", cls: "border-red-400/30 bg-red-400/10 text-red-300" },
+};
+
+function StatusChip({ post }) {
+  const look = STATUS_LOOK[post.status] || STATUS_LOOK.active;
+  const label = post.status === "removed" && post.removedByAdmin ? "Removed by mod" : look.label;
+  return (
+    <span className={`shrink-0 rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider ${look.cls}`}>
+      {label}
+    </span>
+  );
 }

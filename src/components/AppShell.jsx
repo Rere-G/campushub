@@ -18,6 +18,7 @@ import {
 import { useActivity } from "../utils/activity";
 import { useConversations } from "../utils/conversations";
 import { useTitleBadge } from "../utils/pageTitle";
+import { InboxContext } from "../utils/inbox";
 
 const inter = { fontFamily: "'Inter', sans-serif" };
 const COLLAPSE_KEY = "ch.sidebar.collapsed";
@@ -63,7 +64,9 @@ export default function AppShell({ account, onLogout, loggingOut, children }) {
   const seenAt = data.activitySeenAt?.toDate?.() ?? null;
   const unread = items.filter((a) => !seenAt || (a.createdAt && a.createdAt > seenAt)).length;
   // Chats with something I haven't read.
-  const { unreadCount: msgUnread } = useConversations(account?.uid);
+  // One live inbox for the whole app (shared with pages via InboxContext).
+  const inbox = useConversations(account?.uid);
+  const msgUnread = inbox.unreadCount;
   useTitleBadge(msgUnread);
 
   // Close menus whenever the page changes. Done during render (not in an
@@ -120,7 +123,7 @@ export default function AppShell({ account, onLogout, loggingOut, children }) {
 
       {/* Page. Bottom padding on phones so nothing hides behind the tab bar. */}
       <main className="min-w-0 flex-1 pb-[calc(76px+env(safe-area-inset-bottom,0px))] md:pb-0">
-        {children}
+        <InboxContext.Provider value={inbox}>{children}</InboxContext.Provider>
       </main>
 
       <BottomBar

@@ -9,7 +9,8 @@ import {
 } from "react-icons/hi2";
 import { auth } from "../services/firebase";
 import PageLoader from "../components/PageLoader";
-import { shortTime, useConversations } from "../utils/conversations";
+import { shortTime } from "../utils/conversations";
+import { useInbox } from "../utils/inbox";
 
 const inter = { fontFamily: "'Inter', sans-serif" };
 const TABS = [
@@ -36,7 +37,8 @@ export default function Messages() {
     return () => unsub();
   }, [navigate]);
 
-  const { convs, loading, error } = useConversations(uid);
+  // The shell's live inbox (no second listener).
+  const { convs, loading, error } = useInbox();
 
   const shown = useMemo(() => {
     const q = search.trim().toLowerCase();
