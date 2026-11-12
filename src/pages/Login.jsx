@@ -7,7 +7,7 @@ import {
 } from "firebase/auth";
 import { auth, db } from "../services/firebase";
 import { doc, getDoc, setDoc, serverTimestamp } from "firebase/firestore";
-import mascotGif from "../assets/TS.gif";
+import mascotGif from "../assets/TS.webp";
 import bgVideo from "../assets/bg-video.mp4";
 import bgPoster from "../assets/bg-poster.jpg";
 

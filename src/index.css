@@ -90,3 +90,14 @@
   -webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - 28px), transparent);
   mask-image: linear-gradient(to bottom, #000 calc(100% - 28px), transparent);
 }
+
+/* Stage 17a: page-loading spinner (hidden for the first 200 ms) */
+.ch-loader {
+  opacity: 0;
+  animation: ch-loader-in 0.2s ease 0.2s forwards, ch-spin 0.8s linear infinite;
+}
+@keyframes ch-loader-in { to { opacity: 1; } }
+@keyframes ch-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) {
+  .ch-loader { animation: ch-loader-in 0.2s ease 0.2s forwards; }
+}

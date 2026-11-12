@@ -19,7 +19,7 @@ import {
   HiOutlineFlag,
 } from "react-icons/hi2";
 import { auth, db } from "../services/firebase";
-import mascotGif from "../assets/TS.gif";
+import mascotGif from "../assets/TS.webp";
 import dashboardBg from "../assets/dashboard-bg.jpg";
 import { markActivityRead, timeAgo, useActivity } from "../utils/activity";
 import { removalReasonText } from "../utils/notifications";

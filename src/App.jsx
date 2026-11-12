@@ -1,24 +1,30 @@
+import { lazy, Suspense } from "react";
 import { Routes, Route, Navigate, Outlet } from "react-router-dom";
-import Landing from "./pages/Landing";
-import Marketplace from "./pages/Marketplace";
-import ListingDetail from "./pages/ListingDetail";
-import Services from "./pages/Services";
-import ServiceDetail from "./pages/ServiceDetail";
-import CreateService from "./pages/CreateService";
-import Login from "./pages/Login";
-import Signup from "./pages/Signup";
-import Dashboard from "./pages/Dashboard";
-import Profile from "./pages/Profile";
-import Admin from "./pages/Admin";
-import CreateListing from "./pages/CreateListing";
-import Saved from "./pages/Saved";
-import MyListings from "./pages/MyListings";
-import Chat from "./pages/Chat";
-import Messages from "./pages/Messages";
 import Gate from "./components/Gate";
+import PageLoader from "./components/PageLoader";
+
+// Stage 17a: each page is its own file, downloaded the first time it's opened.
+const Landing = lazy(() => import("./pages/Landing"));
+const Marketplace = lazy(() => import("./pages/Marketplace"));
+const ListingDetail = lazy(() => import("./pages/ListingDetail"));
+const Services = lazy(() => import("./pages/Services"));
+const ServiceDetail = lazy(() => import("./pages/ServiceDetail"));
+const CreateService = lazy(() => import("./pages/CreateService"));
+const Login = lazy(() => import("./pages/Login"));
+const Signup = lazy(() => import("./pages/Signup"));
+const Dashboard = lazy(() => import("./pages/Dashboard"));
+const Profile = lazy(() => import("./pages/Profile"));
+const Admin = lazy(() => import("./pages/Admin"));
+const CreateListing = lazy(() => import("./pages/CreateListing"));
+const Saved = lazy(() => import("./pages/Saved"));
+const MyListings = lazy(() => import("./pages/MyListings"));
+const Chat = lazy(() => import("./pages/Chat"));
+const Messages = lazy(() => import("./pages/Messages"));
+
 
 export default function App() {
   return (
+    <Suspense fallback={<PageLoader fullScreen />}>
     <Routes>
       <Route path="/" element={<Landing />} />
       <Route path="/Home" element={<Navigate to="/" replace />} />
@@ -28,7 +34,7 @@ export default function App() {
       {/* Every signed-in page: ONE Gate (account check) + the sidebar shell,
           kept mounted while moving between these pages. Pending users may
           only open /Profile (shown without the shell). */}
-      <Route element={<Gate withShell allowUnapprovedPaths={["/profile"]}><Outlet /></Gate>}>
+      <Route element={<Gate withShell allowUnapprovedPaths={["/profile"]}><Suspense fallback={<PageLoader />}><Outlet /></Suspense></Gate>}>
         <Route path="/dashboard" element={<Dashboard />} />
         <Route path="/marketplace" element={<Marketplace />} />
         <Route path="/marketplace/new" element={<CreateListing />} />
@@ -47,5 +53,6 @@ export default function App() {
 
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
+    </Suspense>
   );
 }

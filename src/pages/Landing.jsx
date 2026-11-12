@@ -5,7 +5,7 @@ import { auth } from "../services/firebase";
 import "./landing.css";
 import headImg from "../assets/LandingPageHead.png";
 import laptopImg from "../assets/laptop.png";
-import mascotGif from "../assets/TS.gif";
+import mascotGif from "../assets/TS.webp";
 import shotMarketplace from "../assets/landing/marketplace.webp";
 import shotPost from "../assets/landing/post.webp";
 import shotDashboard from "../assets/landing/dashboard.webp";

@@ -79,6 +79,7 @@ export default function Profile() {
           });
         }
       } catch (err) {
+        console.error("Profile load failed:", err);
         setPopup({ show: true, text: "Couldn't load your profile. Refresh and try again.", ok: false });
       } finally {
         setLoading(false);
@@ -149,6 +150,7 @@ export default function Profile() {
 
       showPopup("Photo updated!");
     } catch (err) {
+      console.error("Photo upload failed:", err);
       showPopup("Couldn't upload the photo. Check the preset is Unsigned, then try again.", false, 3200);
     } finally {
       setUploadingPhoto(false);
@@ -205,6 +207,7 @@ export default function Profile() {
 
       showPopup(allFilled ? "Profile saved — you're all set!" : "Profile saved.");
     } catch (err) {
+      console.error("Profile save failed:", err);
       showPopup("Couldn't save. Check your connection and try again.", false, 2800);
     } finally {
       setSaving(false);

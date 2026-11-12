@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { Suspense, useEffect, useMemo, useState } from "react";
 import { Link, Outlet, useNavigate, useParams } from "react-router-dom";
 import { onAuthStateChanged } from "firebase/auth";
 import {
@@ -7,6 +7,7 @@ import {
   HiOutlineMagnifyingGlass,
 } from "react-icons/hi2";
 import { auth } from "../services/firebase";
+import PageLoader from "../components/PageLoader";
 import { shortTime, useConversations } from "../utils/conversations";
 
 const inter = { fontFamily: "'Inter', sans-serif" };
@@ -158,7 +159,9 @@ export default function Messages() {
       {/* ── Open chat (or a hint on desktop) ── */}
       <div className={`${convId ? "flex" : "hidden md:flex"} min-w-0 flex-1 flex-col`}>
         {convId ? (
-          <Outlet />
+          <Suspense fallback={<PageLoader />}>
+            <Outlet />
+          </Suspense>
         ) : (
           <div className="m-auto max-w-xs px-6 text-center">
             <HiOutlineChatBubbleLeftRight className="mx-auto h-8 w-8 text-white/20" />
