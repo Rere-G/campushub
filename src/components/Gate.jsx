@@ -8,6 +8,7 @@ import {
   HiOutlineArrowLeftOnRectangle,
   HiOutlineExclamationTriangle,
   HiOutlineUserCircle,
+  HiOutlineChatBubbleBottomCenterText,
 } from "react-icons/hi2";
 import { auth, db } from "../services/firebase";
 import AppShell from "./AppShell";
@@ -94,7 +95,14 @@ export default function Gate({ children, allowUnapproved = false, allowUnapprove
   if (status === "error") return <GateScreen kind="error" onLogout={handleLogout} loggingOut={loggingOut} />;
   if (status === "pending") {
     if (pendingAllowed) return children;
-    return <GateScreen kind="pending" onLogout={handleLogout} loggingOut={loggingOut} />;
+    return (
+      <GateScreen
+        kind="pending"
+        note={String(account?.data?.changesRequested ?? "").trim()}
+        onLogout={handleLogout}
+        loggingOut={loggingOut}
+      />
+    );
   }
   if (withShell) {
     return (
@@ -107,7 +115,7 @@ export default function Gate({ children, allowUnapproved = false, allowUnapprove
 }
 
 /* ─── Shared full-screen message state ─────────────────────────── */
-function GateScreen({ kind, loading, onLogout, loggingOut }) {
+function GateScreen({ kind, loading, onLogout, loggingOut, note = "" }) {
   return (
     <div
       className="flex min-h-screen items-center justify-center bg-[#0d0b07] px-4 text-white"
@@ -132,19 +140,32 @@ function GateScreen({ kind, loading, onLogout, loggingOut }) {
           </>
         ) : kind === "pending" ? (
           <>
-            <IconBadge icon={HiOutlineClock} tone="pending" />
+            <IconBadge icon={note ? HiOutlineChatBubbleBottomCenterText : HiOutlineClock} tone="pending" />
             <h1 className="mt-4 text-xl font-bold" style={{ fontFamily: "'Inter', sans-serif" }}>
-              Awaiting approval
+              {note ? "An admin asked for changes" : "Awaiting approval"}
             </h1>
-            <p className="mt-2 text-sm leading-6 text-white/50">
-              Your account is waiting on approval from a CampusHub admin. You can finish setting up your profile in the meantime.
-            </p>
+            {note ? (
+              <>
+                {/* Stage 18c-2: the admin's "Request changes" note (updates live). */}
+                <div className="mt-4 rounded-2xl border border-[#c9963f]/30 bg-[#c9963f]/[0.08] p-4 text-left">
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-[#e8c88f]">Note from the admin</p>
+                  <p className="mt-1.5 text-sm leading-6 text-[#f4e6cd]/90">{note}</p>
+                </div>
+                <p className="mt-3 text-sm leading-6 text-white/50">
+                  Update your profile, and an admin will review your account again.
+                </p>
+              </>
+            ) : (
+              <p className="mt-2 text-sm leading-6 text-white/50">
+                Your account is waiting on approval from a CampusHub admin. You can finish setting up your profile in the meantime.
+              </p>
+            )}
             <Link
               to="/Profile"
               className="mt-5 inline-flex h-11 w-full items-center justify-center gap-2 rounded-2xl bg-gradient-to-r from-[#8f774b] to-[#c9963f] text-sm font-bold uppercase tracking-[0.1em] text-[#f4e6cd] transition-all duration-300 hover:-translate-y-0.5 hover:from-[#9c8352] hover:to-[#d6a24a]"
             >
               <HiOutlineUserCircle className="h-4 w-4" />
-              Finish your profile
+              {note ? "Update my profile" : "Finish your profile"}
             </Link>
             <LogoutButton onClick={onLogout} busy={loggingOut} subtle />
           </>

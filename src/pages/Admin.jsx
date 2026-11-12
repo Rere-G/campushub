@@ -2,7 +2,7 @@ import { Suspense, lazy, useCallback, useEffect, useMemo, useState } from "react
 import { usePageTitle } from "../utils/pageTitle";
 import { Link, useNavigate } from "react-router-dom";
 import { onAuthStateChanged } from "firebase/auth";
-import { doc, getDoc, getDocs, collection, updateDoc } from "firebase/firestore";
+import { doc, getDoc, getDocs, collection, serverTimestamp, writeBatch } from "firebase/firestore";
 import {
   HiOutlineChartBar,
   HiOutlineUsers,
@@ -18,6 +18,8 @@ import dashboardBg from "../assets/dashboard-bg.jpg";
 import ReportsPanel from "../components/ReportsPanel";
 import PostsPanel from "../components/PostsPanel";
 import PageLoader from "../components/PageLoader";
+import AdminUserView from "../components/AdminUserView";
+import { logEntry, newLogRef } from "../utils/adminLog";
 
 // Stage 18c-1: charts load only when the Overview tab is shown.
 const AdminOverview = lazy(() => import("../components/AdminOverview"));
@@ -33,13 +35,14 @@ const displayName = (u) =>
   (u.username && u.username.trim()) ||
   (u.email ? u.email.split("@")[0] : "Student");
 const initialOf = (u) => displayName(u).trim().charAt(0).toUpperCase() || "U";
-const metaLine = (u) => {
+const studyLine = (u) => {
   const parts = [];
   if (u.university && String(u.university).trim()) parts.push(String(u.university).trim());
   if (u.department && String(u.department).trim()) parts.push(String(u.department).trim());
-  if (u.studentId && String(u.studentId).trim()) parts.push(`ID ${String(u.studentId).trim()}`);
+  if (u.graduationYear && String(u.graduationYear).trim()) parts.push(`Class of ${String(u.graduationYear).trim()}`);
   return parts.join(" · ");
 };
+const hasStudentId = (u) => String(u.studentId ?? "").trim() !== "";
 
 const TABS = [
   { key: "pending", label: "Pending" },
@@ -66,6 +69,7 @@ export default function Admin() {
   const [tab, setTab] = useState("pending");
   const [busyId, setBusyId] = useState(null);
   const [confirmState, setConfirmState] = useState(null); // { user, kind: 'ban' | 'revoke' }
+  const [viewingId, setViewingId] = useState(null); // user open in the admin Quick view
   const [section, setSection] = useState("overview"); // "overview" | "users" | "posts" | "reports"
   const [openReports, setOpenReports] = useState(0);
   const [popup, setPopup] = useState({ show: false, text: "", ok: true });
@@ -128,14 +132,22 @@ export default function Admin() {
     return users;
   }, [users, tab]);
 
-  /* ── Partial-update write: optimistic, revert + toast on error ── */
-  const applyChange = async (target, patch, successMsg) => {
-    if (busyId) return;
+  /* ── One admin action = the change + its audit-log entry, saved together
+        in a single batch (both succeed or neither does). Optimistic UI,
+        reverted with a toast on error. ── */
+  const applyChange = async (target, patch, successMsg, log, localPatch = patch) => {
+    if (busyId) return false;
     setBusyId(target.id);
     const prev = users;
-    setUsers((list) => list.map((u) => (u.id === target.id ? { ...u, ...patch } : u)));
+    setUsers((list) => list.map((u) => (u.id === target.id ? { ...u, ...localPatch } : u)));
     try {
-      await updateDoc(doc(db, "users", target.id), patch);
+      const batch = writeBatch(db);
+      batch.update(doc(db, "users", target.id), patch);
+      batch.set(
+        newLogRef(),
+        logEntry({ actorId: uid, targetType: "user", targetId: target.id, targetLabel: displayName(target), ...log })
+      );
+      await batch.commit();
       toast(successMsg, true);
       return true;
     } catch (err) {
@@ -155,17 +167,39 @@ export default function Admin() {
   }, []);
 
   const approve = async (u) => {
-    const ok = await applyChange(u, { approved: true }, `Approved ${displayName(u)}`);
-    if (ok) await notifyAccountApproved(u.id);
+    // Approving clears any "changes requested" note (firestore.rules require it).
+    const hadNote = String(u.changesRequested ?? "") !== "";
+    const patch = hadNote ? { approved: true, changesRequested: "", changesRequestedAt: serverTimestamp() } : { approved: true };
+    const local = hadNote ? { approved: true, changesRequested: "", changesRequestedAt: new Date() } : patch;
+    const ok = await applyChange(u, patch, `Approved ${displayName(u)}`, { action: "user_approved" }, local);
+    if (ok) {
+      setViewingId(null);
+      await notifyAccountApproved(u.id);
+    }
   };
-  const unban = (u) => applyChange(u, { banned: false }, `Unbanned ${displayName(u)}`);
+  const unban = async (u) => {
+    const ok = await applyChange(u, { banned: false }, `Unbanned ${displayName(u)}`, { action: "user_unbanned" });
+    if (ok) setViewingId(null);
+  };
+  const requestChanges = async (u, note) => {
+    const ok = await applyChange(
+      u,
+      { changesRequested: note, changesRequestedAt: serverTimestamp() },
+      `Sent your note to ${displayName(u)}`,
+      { action: "changes_requested", reason: note },
+      { changesRequested: note, changesRequestedAt: new Date() }
+    );
+    if (ok) setViewingId(null);
+  };
+  const closeView = useCallback(() => setViewingId(null), []);
+  const viewing = viewingId ? users.find((u) => u.id === viewingId) : null;
 
   const confirmProceed = () => {
     if (!confirmState) return;
     const { user, kind } = confirmState;
     setConfirmState(null);
-    if (kind === "ban") applyChange(user, { banned: true }, `Banned ${displayName(user)}`);
-    else applyChange(user, { approved: false }, `Revoked ${displayName(user)}`);
+    if (kind === "ban") applyChange(user, { banned: true }, `Banned ${displayName(user)}`, { action: "user_banned" });
+    else applyChange(user, { approved: false }, `Revoked ${displayName(user)}`, { action: "user_revoked" });
   };
 
   // From the Overview: jump to a section (and a Users filter tab).
@@ -353,42 +387,65 @@ export default function Admin() {
                       key={u.id}
                       className="flex flex-wrap items-center gap-3.5 rounded-2xl border border-white/[0.09] bg-white/[0.04] px-3.5 py-3 transition-colors duration-200 hover:border-white/[0.14]"
                     >
-                      {/* Avatar */}
-                      <div
-                        className="flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-full text-lg font-semibold text-[#f4e6cd]"
-                        style={{ background: "linear-gradient(135deg,#8f774b,#c9963f)" }}
+                      {/* Avatar + details: opens the admin Quick view */}
+                      <button
+                        type="button"
+                        onClick={() => setViewingId(u.id)}
+                        aria-label={`View ${displayName(u)}'s details`}
+                        className="group flex min-w-0 flex-1 items-center gap-3.5 rounded-xl text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-[#c9963f]/60"
                       >
-                        {isUrl(u.profilePhoto) ? (
-                          <img src={u.profilePhoto} alt="" className="h-full w-full object-cover" />
-                        ) : (
-                          initialOf(u)
-                        )}
-                      </div>
-
-                      {/* Info */}
-                      <div className="min-w-0 flex-1">
-                        <div className="flex flex-wrap items-center gap-2">
-                          <span className="text-[15px] font-semibold text-white">{displayName(u)}</span>
-                          <span
-                            className="rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.05em]"
-                            style={
-                              u.role === "admin"
-                                ? { background: "rgba(214,189,151,0.16)", color: "#d6bd97" }
-                                : { background: "rgba(255,255,255,0.08)", color: "rgba(244,230,205,0.6)" }
-                            }
-                          >
-                            {u.role === "admin" ? "Admin" : "Student"}
+                        <span
+                          className="flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-full text-lg font-semibold text-[#f4e6cd]"
+                          style={{ background: "linear-gradient(135deg,#8f774b,#c9963f)" }}
+                        >
+                          {isUrl(u.profilePhoto) ? (
+                            <img src={u.profilePhoto} alt="" className="h-full w-full object-cover" />
+                          ) : (
+                            initialOf(u)
+                          )}
+                        </span>
+                        <span className="min-w-0 flex-1">
+                          <span className="flex flex-wrap items-center gap-2">
+                            <span className="text-[15px] font-semibold text-white group-hover:text-[#f4e6cd] group-hover:underline group-hover:decoration-[#c9963f]/50 group-hover:underline-offset-4">
+                              {displayName(u)}
+                            </span>
+                            <span
+                              className="rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.05em]"
+                              style={
+                                u.role === "admin"
+                                  ? { background: "rgba(214,189,151,0.16)", color: "#d6bd97" }
+                                  : { background: "rgba(255,255,255,0.08)", color: "rgba(244,230,205,0.6)" }
+                              }
+                            >
+                              {u.role === "admin" ? "Admin" : "Student"}
+                            </span>
+                            <span
+                              className={`rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.05em] ${statusPill.cls}`}
+                              style={{ background: statusPill.bg }}
+                            >
+                              {statusPill.text}
+                            </span>
+                            {!u.approved && !u.banned && String(u.changesRequested ?? "") !== "" && (
+                              <span className="rounded-full border border-[#c9963f]/35 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.05em] text-[#e8c88f]">
+                                Changes requested
+                              </span>
+                            )}
                           </span>
-                          <span
-                            className={`rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.05em] ${statusPill.cls}`}
-                            style={{ background: statusPill.bg }}
-                          >
-                            {statusPill.text}
+                          <span className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs">
+                            {u.role === "admin" ? null : hasStudentId(u) ? (
+                              <span className="rounded-md border border-white/10 bg-white/[0.05] px-1.5 py-0.5 font-mono text-[12px] font-semibold text-[#f4e6cd]">
+                                ID {String(u.studentId).trim()}
+                              </span>
+                            ) : (
+                              <span className="rounded-md border border-red-400/30 bg-red-400/10 px-1.5 py-0.5 text-[11px] font-semibold text-red-300">
+                                No student ID
+                              </span>
+                            )}
+                            {studyLine(u) && <span className="truncate text-[#f4e6cd]/55">{studyLine(u)}</span>}
                           </span>
-                        </div>
-                        <p className="mt-1 truncate text-xs text-[#f4e6cd]/50">{u.email}</p>
-                        {metaLine(u) && <p className="mt-0.5 truncate text-xs text-[#f4e6cd]/40">{metaLine(u)}</p>}
-                      </div>
+                          <span className="mt-1 block truncate text-xs text-[#f4e6cd]/40">{u.email}</span>
+                        </span>
+                      </button>
 
                       {/* Actions */}
                       <div className="flex w-full shrink-0 gap-2 sm:w-auto">
@@ -448,6 +505,26 @@ export default function Admin() {
           <p className="text-[11px] text-white/15">Admin</p>
         </footer>
       </div>
+
+      {viewing && (
+        <AdminUserView
+          user={viewing}
+          self={viewing.id === uid}
+          busy={busyId === viewing.id}
+          onApprove={approve}
+          onRevoke={(u) => {
+            setViewingId(null);
+            setConfirmState({ user: u, kind: "revoke" });
+          }}
+          onBan={(u) => {
+            setViewingId(null);
+            setConfirmState({ user: u, kind: "ban" });
+          }}
+          onUnban={unban}
+          onRequestChanges={requestChanges}
+          onClose={closeView}
+        />
+      )}
 
       {/* ── Confirm modal (Ban / Revoke) ── */}
       {confirmState && (

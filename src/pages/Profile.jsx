@@ -236,6 +236,15 @@ export default function Profile() {
           ← Back to dashboard
         </Link>
 
+        {/* Stage 18c-2: the admin's "Request changes" note, while still pending. */}
+        {!loading && profile && profile.approved !== true && String(profile.changesRequested ?? "").trim() !== "" && (
+          <div role="status" className="mb-5 rounded-2xl border border-[#c9963f]/35 bg-[#c9963f]/[0.08] px-5 py-4">
+            <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-[#e8c88f]">An admin asked for changes</p>
+            <p className="mt-1 text-sm leading-6 text-[#f4e6cd]/90">{profile.changesRequested}</p>
+            <p className="mt-1 text-xs text-white/45">Fix this below and save. An admin will then review your account again.</p>
+          </div>
+        )}
+
         {loading ? (
           <div className="flex items-center gap-3 rounded-[24px] border border-white/10 bg-white/[0.05] p-8 text-white/60 backdrop-blur-xl">
             <span className="h-5 w-5 animate-spin rounded-full border-2 border-white/20 border-t-[#c9963f]" />
