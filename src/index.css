@@ -45,8 +45,14 @@
 }
 
 @layer base {
+  /* The app is dark everywhere, so the page behind it is too: no white
+     showing when you scroll past the top/bottom or before a page loads. */
+  html {
+    background: #0d0b07;
+    color-scheme: dark;
+  }
   body {
-    background: var(--color-paper-white);
+    background: #0d0b07;
     color: var(--color-carbon);
     font-family: var(--font-sans);
     -webkit-font-smoothing: antialiased;

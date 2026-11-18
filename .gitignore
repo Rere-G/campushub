@@ -26,3 +26,9 @@ src/assets/bg-video.mp4
 
 # Firebase deploy cache
 .firebase/
+
+# Demo data (stage 21a): never commit admin keys or demo logins
+*firebase-adminsdk*.json
+*admin-key*.json
+serviceAccount*.json
+demo-accounts.txt
